@@ -3,7 +3,6 @@ import logging
 from concurrent.futures import Future
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
-from typing import Any
 
 import filepattern
 import numpy
@@ -27,7 +26,7 @@ logger.setLevel(constants.POLUS_LOG)
 class Model(abc.ABC):
     """ Base class for models that can be trained to estimate bleed-through. """
 
-    __slots__ = '__files', '__selected_tiles', '__channel_overlap', '__coefficients'
+    __slots__ = '__files', '__channel_overlap', '__coefficients'
 
     def __init__(
             self,
@@ -44,10 +43,9 @@ class Model(abc.ABC):
         """
 
         self.__files = files
-        self.__selected_tiles = selected_tiles
         self.__channel_overlap = min(len(self.__files) - 1, max(1, channel_overlap))
 
-        self.__coefficients = self._fit()
+        self.__coefficients = self._fit(selected_tiles)
 
     @abc.abstractmethod
     def _init_model(self):
@@ -61,12 +59,12 @@ class Model(abc.ABC):
 
     def _get_neighbors(self, source_index: int) -> list[int]:
         """ Get the neighboring channels for the given source-channel. """
-        neighbor_indices = [source_index - j - 1 for j in range(self.__channel_overlap)]
-        neighbor_indices.extend(source_index + j + 1 for j in range(self.__channel_overlap))
-        neighbor_indices = list(filter(lambda j: 0 <= j < len(self.__files), neighbor_indices))
+        neighbor_indices = [source_index - i - 1 for i in range(self.__channel_overlap)]
+        neighbor_indices.extend(source_index + i + 1 for i in range(self.__channel_overlap))
+        neighbor_indices = list(filter(lambda i: 0 <= i < len(self.__files), neighbor_indices))
         return neighbor_indices
 
-    def _fit_thread(self, source_index: int) -> list[float]:
+    def _fit_thread(self, source_index: int, selected_tiles: types.TileIndices) -> list[float]:
         """ Trains a single model on a single source-channel and returns the mixing coefficients with the adjacent channels.
 
         This function can be run inside a thread in a ProcessPoolExecutor.
@@ -83,10 +81,10 @@ class Model(abc.ABC):
                 for i in self._get_neighbors(source_index)
             ]
 
-            logger.info(f'Fitting {self.__class__.__name__} {source_index} on {len(self.__selected_tiles)} tiles...')
+            logger.info(f'Fitting {self.__class__.__name__} {source_index} on {len(selected_tiles)} tiles...')
             model = self._init_model()
-            for i, (z_min, z_max, y_min, y_max, x_min, x_max) in enumerate(self.__selected_tiles):
-                logger.info(f'Fitting {self.__class__.__name__} {source_index}: Progress: {100 * i / len(self.__selected_tiles):6.2f} %')
+            for i, (z_min, z_max, y_min, y_max, x_min, x_max) in enumerate(selected_tiles):
+                logger.info(f'Fitting {self.__class__.__name__} {source_index}: Progress: {100 * i / len(selected_tiles):6.2f} %')
 
                 tiles: list[numpy.ndarray] = [
                     numpy.squeeze(source_reader[y_min:y_max, x_min:x_max, z_min:z_max, 0, 0]).flatten()
@@ -97,7 +95,11 @@ class Model(abc.ABC):
                 )
                 tiles: numpy.ndarray = img_as_float32(numpy.asarray(tiles).T)
 
-                model.fit(tiles[:, 1:], tiles[:, 0])
+                source, neighbors = tiles[:, 0], tiles[:, 1:]
+                interactions = numpy.expand_dims(source, axis=1) * neighbors
+                neighbors = numpy.concatenate([neighbors, interactions], axis=1)
+
+                model.fit(neighbors, source)
 
             coefficients = list(map(float, model.coef_))
             del model
@@ -105,26 +107,28 @@ class Model(abc.ABC):
 
         return coefficients
 
-    def _fit(self) -> numpy.ndarray:
+    def _fit(self, selected_tiles: types.TileIndices) -> numpy.ndarray:
         """ Fits the model on the images and returns a matrix of mixing coefficients. """
 
         with ProcessPoolExecutor() as executor:
-            coefficients_list: list[Future[list[float]]] = [executor.submit(self._fit_thread, i) for i in range(len(self.__files))]
+            coefficients_list: list[Future[list[float]]] = [
+                executor.submit(self._fit_thread, source_index, selected_tiles)
+                for source_index in range(len(self.__files))
+            ]
             coefficients_list: list[list[float]] = [future.result() for future in coefficients_list]
 
         coefficients_matrix = numpy.zeros(
-            shape=(len(self.__files), len(self.__files)),
+            shape=(len(self.__files), 2 * len(self.__files)),
             dtype=numpy.float32,
         )
         for i, coefficients in enumerate(coefficients_list):
             neighbor_indices = self._get_neighbors(i)
+            interaction_indices = [j + len(self.__files) for j in neighbor_indices]
+
+            neighbor_indices = neighbor_indices + interaction_indices
             coefficients_matrix[i, neighbor_indices] = coefficients
 
         return coefficients_matrix
-
-    def _get_writer_paths(self, destination_dir: Path) -> list[Path]:
-        """ Returns an output path for each image in the list of input paths. """
-        return [destination_dir.joinpath(helpers.replace_extension(input_path.name)) for input_path in self.__files]
 
     def coefficients_to_csv(
             self,
@@ -148,12 +152,13 @@ class Model(abc.ABC):
 
         metadata_path = destination_dir.joinpath(f'{name}_coefficients.csv')
         with open(metadata_path, 'w') as outfile:
-            header = ','.join(f'{c}' for c in range(len(self.__files)))
-            outfile.write(f'channel,{header}\n')
+            header_1 = ','.join(f'c{c}' for c in range(len(self.__files)))
+            header_2 = ','.join(f'i{c}' for c in range(len(self.__files)))
+            outfile.write(f'channel,{header_1},{header_2}\n')
 
             for channel, row in enumerate(self.coefficients):
                 row = ','.join(f'{c:.6e}' for c in row)
-                outfile.write(f'{channel},{row}\n')
+                outfile.write(f'c{channel},{row}\n')
 
         return
 
@@ -167,66 +172,72 @@ class Model(abc.ABC):
             destination_dir: Path to the directory where the output images will
                               be written.
         """
-        readers = list(map(BioReader, self.__files))
-
         with ProcessPoolExecutor() as executor:
-            for i, writer_path in enumerate(self._get_writer_paths(destination_dir)):
-                neighbor_indices = numpy.nonzero(self.__coefficients[i, :])[0]
-                coefficients: list[float] = self.__coefficients[i, :][neighbor_indices]
-                neighbor_paths = [self.__files[j] for j in neighbor_indices]
-
-                coefficients: list[tuple[float, Path]] = [
-                    (float(c), p)
-                    for c, p in zip(coefficients, neighbor_paths)
-                ]
-
+            for source_index, input_path in enumerate(self.__files):
+                writer_name = helpers.replace_extension(input_path.name)
                 executor.submit(
                     self._write_components_thread,
-                    writer_path,
-                    readers[i].metadata,
-                    coefficients,
+                    destination_dir,
+                    writer_name,
+                    source_index,
                 )
-
-        [reader.close() for reader in readers]
         return
 
-    @staticmethod
     def _write_components_thread(
-            writer_path: Path,
-            metadata: Any,
-            coefficients: list[tuple[float, Path]],
+            self,
+            output_dir: Path,
+            image_name: str,
+            source_index: int,
     ):
         """ Writes the bleed-through components for a single image.
 
         This function can be run in a single thread in a ProcessPoolExecutor.
 
         Args:
-            writer_path: Path for the output image.
-            metadata: The metadata from the source image.
-            coefficients: A list of tuples of the mixing coefficient and a path
-                           to the corresponding image in a neighboring channel.
+            output_dir: Path for the directory of the bleed-through components.
+            image_name: name of the source image.
+            source_index: index of the source channel.
         """
-        neighbor_readers = [BioReader(neighbor) for _, neighbor in coefficients]
-        coefficients: list[float] = [c for c, _ in coefficients]
+        neighbor_indices = self._get_neighbors(source_index)
 
-        with BioWriter(writer_path, metadata=metadata) as writer:
+        neighbor_readers = [BioReader(self.__files[i]) for i in neighbor_indices]
+        neighbor_coefficients = [float(c) for c in self.__coefficients[source_index, [neighbor_indices]]]
 
-            logger.info(f'Writing components for {writer_path.name}...')
-            num_tiles = helpers.count_tiles_2d(writer)
-            for i, (z, y_min, y_max, x_min, x_max) in enumerate(helpers.tile_indices_2d(writer)):
-                component = numpy.zeros(
-                    shape=(y_max - y_min, x_max - x_min),
-                    dtype=writer.dtype,
-                )
+        interaction_indices = [j + len(self.__files) for j in neighbor_indices]
+        interaction_coefficients = [float(c) for c in self.__coefficients[source_index, [interaction_indices]]]
+
+        with BioReader(self.__files[source_index]) as reader:
+            metadata = reader.metadata
+            num_tiles = helpers.count_tiles_2d(reader)
+            tile_indices = list(helpers.tile_indices_2d(reader))
+            dtype = reader.dtype
+
+            original_writer = BioWriter(output_dir.joinpath(f'original_{image_name}'), metadata=metadata)
+            interaction_writer = BioWriter(output_dir.joinpath(f'interaction_{image_name}'), metadata=metadata)
+            both_writer = BioWriter(output_dir.joinpath(f'both_{image_name}'), metadata=metadata)
+
+            logger.info(f'Writing components for {image_name}...')
+            for i, (z, y_min, y_max, x_min, x_max) in enumerate(tile_indices):
+                tile = numpy.squeeze(reader[y_min:y_max, x_min:x_max, z:z + 1, 0, 0])
+
+                original_component, interaction_component = numpy.zeros_like(tile), numpy.zeros_like(tile)
+
                 if i % 10 == 0:
-                    logger.info(f'Writing {writer_path.name}: Progress {100 * i / num_tiles:6.2f} %')
+                    logger.info(f'Writing {image_name}: Progress {100 * i / num_tiles:6.2f} %')
 
-                for c, reader in zip(coefficients, neighbor_readers):
-                    tile = numpy.squeeze(reader[y_min:y_max, x_min:x_max, z:z + 1, 0, 0])
-                    component += numpy.asarray((c * tile), dtype=writer.dtype)
+                for neighbor_reader, original_c, interaction_c in zip(neighbor_readers, neighbor_coefficients, interaction_coefficients):
+                    neighbor_tile = numpy.squeeze(neighbor_reader[y_min:y_max, x_min:x_max, z:z + 1, 0, 0])
+                    if original_c != 0:
+                        original_component += numpy.asarray((original_c * neighbor_tile), dtype=dtype)
 
-                writer[y_min:y_max, x_min:x_max, z:z + 1, 0, 0] = component
+                    if interaction_c != 0:
+                        interaction_component += numpy.asarray((interaction_c * neighbor_tile * tile), dtype=dtype)
 
+                original_writer[y_min:y_max, x_min:x_max, z:z + 1, 0, 0] = original_component
+                interaction_writer[y_min:y_max, x_min:x_max, z:z + 1, 0, 0] = interaction_component
+                both_writer[y_min:y_max, x_min:x_max, z:z + 1, 0, 0] = original_component + interaction_component
+
+        original_writer.close(), interaction_writer.close(), both_writer.close()
         [reader.close() for reader in neighbor_readers]
         return
 

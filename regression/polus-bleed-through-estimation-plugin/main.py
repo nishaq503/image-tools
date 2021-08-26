@@ -1,7 +1,6 @@
 import argparse
 import logging
 from pathlib import Path
-from typing import Optional
 
 from filepattern import FilePattern
 
@@ -16,31 +15,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger('main')
 logger.setLevel(constants.POLUS_LOG)
-
-
-def main(
-        *,
-        input_dir: Path,
-        pattern: str,
-        group_by: str,
-        selector_name: str,
-        model_name: str,
-        channel_overlap: int,
-        output_dir: Optional[Path],
-        metadata_dir: Path,
-):
-    fp = FilePattern(input_dir, pattern)
-    for group in fp(list(group_by)):
-        estimate_bleed_through(
-            group=group,
-            pattern=pattern,
-            selector_name=selector_name,
-            model_name=model_name,
-            channel_overlap=channel_overlap,
-            output_dir=output_dir,
-            metadata_dir=metadata_dir,
-        )
-    return
 
 
 if __name__ == '__main__':
@@ -172,13 +146,14 @@ if __name__ == '__main__':
     logger.info(f'outDir = {_output_dir}')
     logger.info(f'metadataDir = {_metadata_dir}')
 
-    main(
-        input_dir=_input_dir,
-        pattern=_pattern,
-        group_by=_group_by,
-        selector_name=_selector_name,
-        model_name=_model_name,
-        channel_overlap=_channel_overlap,
-        output_dir=_output_dir if _compute_components else None,
-        metadata_dir=_metadata_dir,
-    )
+    _fp = FilePattern(_input_dir, _pattern)
+    for _group in _fp(list(_group_by)):
+        estimate_bleed_through(
+            group=_group,
+            pattern=_pattern,
+            selector_name=_selector_name,
+            model_name=_model_name,
+            channel_overlap=_channel_overlap,
+            output_dir=_output_dir if _compute_components else None,
+            metadata_dir=_metadata_dir,
+        )
