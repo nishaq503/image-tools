@@ -103,6 +103,7 @@ class Model(abc.ABC):
                 
                 tiles: numpy.ndarray = numpy.asarray(tiles).T.astype(numpy.float32)
                 tiles = (tiles - numpy.asarray(mins)) / (numpy.asarray(maxs) - numpy.asarray(mins))
+                tiles[tiles < 0] = 0
 
                 source, neighbors = tiles[:, 0], tiles[:, 1:]
                 interactions = numpy.sqrt(numpy.expand_dims(source, axis=1) * neighbors)
@@ -186,23 +187,17 @@ class Model(abc.ABC):
             processes = []
             for source_index, input_path in enumerate(self.__files):
                 writer_name = helpers.replace_extension(input_path.name)
-                self._write_components_thread(
+                processes.append(executor.submit(
+                    self._write_components_thread,
                     destination_dir,
                     writer_name,
                     source_index,
                     image_maxs,
-                    image_mins)
-                # processes.append(executor.submit(
-                #     self._write_components_thread,
-                #     destination_dir,
-                #     writer_name,
-                #     source_index,
-                #     image_maxs,
-                #     image_mins
-                # ))
+                    image_mins
+                ))
                 
-            # for process in processes:
-            #     process.result()
+            for process in processes:
+                process.result()
         return
 
     def _write_components_thread(
@@ -236,17 +231,14 @@ class Model(abc.ABC):
             metadata = reader.metadata
             num_tiles = helpers.count_tiles_2d(reader)
             tile_indices = list(helpers.tile_indices_2d(reader))
-            dtype = reader.dtype
 
             original_writer = BioWriter(output_dir.joinpath(f'original_{image_name}'), metadata=metadata)
-            interaction_writer = BioWriter(output_dir.joinpath(f'interaction_{image_name}'), metadata=metadata)
-            both_writer = BioWriter(output_dir.joinpath(f'both_{image_name}'), metadata=metadata)
 
             logger.info(f'Writing components for {image_name}...')
             for i, (z, y_min, y_max, x_min, x_max) in enumerate(tile_indices):
                 tile = numpy.squeeze(reader[y_min:y_max, x_min:x_max, z:z + 1, 0, 0])
 
-                original_component, interaction_component = numpy.zeros_like(tile), numpy.zeros_like(tile)
+                original_component = numpy.zeros_like(tile)
 
                 if i % 10 == 0:
                     logger.info(f'Writing {image_name}: Progress {100 * i / num_tiles:6.2f} %')
@@ -255,19 +247,12 @@ class Model(abc.ABC):
                     neighbor_tile = numpy.squeeze(neighbor_reader[y_min:y_max, x_min:x_max, z:z + 1, 0, 0]).astype(numpy.float32)
                     neighbor_tile = (neighbor_tile - mins) / (maxs - mins)
                     if original_c != 0:
-                        # current_component = original_c * neighbor_tile
                         current_component = original_c * neighbor_tile * (maxs - mins) + mins
                         original_component += current_component.astype(tile.dtype)
 
-                    # if interaction_c != 0:
-                    #     interaction_component += numpy.asarray((interaction_c * neighbor_tile * tile), dtype=dtype)
-
                 original_writer[y_min:y_max, x_min:x_max, z:z + 1, 0, 0] = original_component
-                # interaction_writer[y_min:y_max, x_min:x_max, z:z + 1, 0, 0] = interaction_component
-                # both_writer[y_min:y_max, x_min:x_max, z:z + 1, 0, 0] = original_component + interaction_component
 
         original_writer.close()
-        # interaction_writer.close(), both_writer.close()
         [reader.close() for reader in neighbor_readers]
         return
 

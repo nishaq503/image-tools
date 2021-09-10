@@ -50,7 +50,6 @@ class Selector(abc.ABC):
             for future in scores:
                 score,image_min,image_max =  future.result()
                 self.__scores.append(score)
-                print(f'image_min: {image_min}')
                 self.__min.append(image_min)
                 self.__max.append(image_max)
 
@@ -88,7 +87,6 @@ class Selector(abc.ABC):
             num_tiles = helpers.count_tiles(reader)
             image_min = numpy.iinfo(reader.dtype).max
             image_max = -numpy.iinfo(reader.dtype).min
-            print(f'image_min: {image_min}')
             for i, (z_min, z_max, y_min, y_max, x_min, x_max) in enumerate(helpers.tile_indices(reader)):
                 if i % 10 == 0:
                     logger.info(f'Ranking tiles in {file_path.name}. Progress {100 * i / num_tiles:6.2f} %')
@@ -97,7 +95,6 @@ class Selector(abc.ABC):
                 scores_dict[(z_min, z_max, y_min, y_max, x_min, x_max)] = self._score_tile(tile)
                 
                 image_min = tile[tile > 0].min(initial=image_min)
-                print(f'image_min: {image_min}')
                 image_max = tile.max(initial=image_max)
 
         return scores_dict, image_min, image_max

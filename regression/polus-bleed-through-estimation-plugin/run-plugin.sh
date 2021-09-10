@@ -10,8 +10,8 @@ POLUS_LOG=INFO
 POLUS_EXT=".ome.tif"
 
 # Inputs
-inpDir=/data/images/MaricRatBrain2019/standard/intensity
-filePattern="S1_R1_C1-C11_A1_c00{c}.ome.tif"
+inpDir=/data/input
+filePattern="S1_R1_C1-C11_A1_y0(00-14)_x0(00-21)_c0{cc}.ome.tif"
 groupBy="c"
 
 # Output paths
