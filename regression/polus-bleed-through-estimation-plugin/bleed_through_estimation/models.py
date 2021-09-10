@@ -232,7 +232,7 @@ class Model(abc.ABC):
             num_tiles = helpers.count_tiles_2d(reader)
             tile_indices = list(helpers.tile_indices_2d(reader))
 
-            original_writer = BioWriter(output_dir.joinpath(f'original_{image_name}'), metadata=metadata)
+            original_writer = BioWriter(output_dir.joinpath(image_name}), metadata=metadata)
 
             logger.info(f'Writing components for {image_name}...')
             for i, (z, y_min, y_max, x_min, x_max) in enumerate(tile_indices):
