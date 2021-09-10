@@ -37,6 +37,7 @@ def estimate_bleed_through(
         metadata_dir: The bleed-through coefficients for each round will be saved in this directory.
     """
     files = [file['file'] for file in group]
+    files = files[:2]
 
     logger.info(f'selecting tiles...')
     selector = tile_selectors.SELECTORS[selector_name](files, num_tiles_per_channel=10)

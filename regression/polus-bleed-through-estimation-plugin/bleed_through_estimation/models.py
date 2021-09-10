@@ -181,23 +181,28 @@ class Model(abc.ABC):
             destination_dir: Path to the directory where the output images will
                               be written.
         """
-        print(self.__files)
         
         with ProcessPoolExecutor() as executor:
             processes = []
             for source_index, input_path in enumerate(self.__files):
                 writer_name = helpers.replace_extension(input_path.name)
-                processes.append(executor.submit(
-                    self._write_components_thread,
+                self._write_components_thread(
                     destination_dir,
                     writer_name,
                     source_index,
                     image_maxs,
-                    image_mins
-                ))
+                    image_mins)
+                # processes.append(executor.submit(
+                #     self._write_components_thread,
+                #     destination_dir,
+                #     writer_name,
+                #     source_index,
+                #     image_maxs,
+                #     image_mins
+                # ))
                 
-            for process in processes:
-                process.result()
+            # for process in processes:
+            #     process.result()
         return
 
     def _write_components_thread(
@@ -250,8 +255,8 @@ class Model(abc.ABC):
                     neighbor_tile = numpy.squeeze(neighbor_reader[y_min:y_max, x_min:x_max, z:z + 1, 0, 0]).astype(numpy.float32)
                     neighbor_tile = (neighbor_tile - mins) / (maxs - mins)
                     if original_c != 0:
-                        current_component = numpy.asarray((original_c * neighbor_tile), dtype=dtype)
-                        current_component = current_component * (maxs - mins) + mins
+                        # current_component = original_c * neighbor_tile
+                        current_component = original_c * neighbor_tile * (maxs - mins) + mins
                         original_component += current_component.astype(tile.dtype)
 
                     # if interaction_c != 0:
