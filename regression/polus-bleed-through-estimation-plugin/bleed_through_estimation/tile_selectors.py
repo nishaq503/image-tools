@@ -24,7 +24,7 @@ logger.setLevel(constants.POLUS_LOG)
 class Selector(abc.ABC):
     """ Base class for tile-selection methods. """
 
-    __slots__ = '__files', '__is_high_better', '__num_tiles_per_channel', '__scores', '__selected_tiles'
+    __slots__ = '__files', '__is_high_better', '__num_tiles_per_channel', '__scores', '__selected_tiles', '__min', '__max'
 
     # noinspection PyTypeChecker
     def __init__(self, files: list[Path], num_tiles_per_channel: int, is_high_better: bool):
@@ -38,19 +38,34 @@ class Selector(abc.ABC):
         self.__files = files
         self.__is_high_better = is_high_better
         self.__num_tiles_per_channel = num_tiles_per_channel
+        self.__min = []
+        self.__max = []
 
         with ProcessPoolExecutor() as executor:
             scores: list[Future[types.ScoresDict]] = [
                 executor.submit(self._score_tiles_thread, file_path)
                 for file_path in self.__files
             ]
-            self.__scores: list[types.ScoresDict] = [future.result() for future in scores]
+            self.__scores: list[types.ScoresDict] = []
+            for future in scores:
+                score,image_min,image_max =  future.result()
+                self.__scores.append(score)
+                self.__min.append(image_min)
+                self.__max.append(image_max)
 
         self.__selected_tiles: types.TileIndices = self._select_best_tiles()
 
     @property
     def selected_tiles(self) -> types.TileIndices:
         return self.__selected_tiles
+    
+    @property
+    def image_mins(self) -> list:
+        return self.__min
+    
+    @property
+    def image_maxs(self) -> list:
+        return self.__max
 
     @abc.abstractmethod
     def _score_tile(self, tile: numpy.ndarray) -> float:
@@ -70,14 +85,19 @@ class Selector(abc.ABC):
             scores_dict: types.ScoresDict = dict()
             logger.info(f'Ranking tiles in {file_path.name}...')
             num_tiles = helpers.count_tiles(reader)
+            image_min = numpy.inf
+            image_max = -numpy.inf
             for i, (z_min, z_max, y_min, y_max, x_min, x_max) in enumerate(helpers.tile_indices(reader)):
                 if i % 10 == 0:
                     logger.info(f'Ranking tiles in {file_path.name}. Progress {100 * i / num_tiles:6.2f} %')
 
                 tile = numpy.squeeze(reader[y_min:y_max, x_min:x_max, z_min:z_max, 0, 0])
                 scores_dict[(z_min, z_max, y_min, y_max, x_min, x_max)] = self._score_tile(tile)
+                
+                image_min = tile[tile > 0].min(initial=image_min)
+                image_max = tile.max(initial=image_max)
 
-        return scores_dict
+        return scores_dict, image_min, image_max
 
     def _select_best_tiles(self) -> types.TileIndices:
         """ Sort the tiles based on their scores and select the best few from each channel
