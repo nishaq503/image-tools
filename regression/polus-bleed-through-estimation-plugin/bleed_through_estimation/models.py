@@ -247,7 +247,13 @@ class Model(abc.ABC):
                     neighbor_tile = numpy.squeeze(neighbor_reader[y_min:y_max, x_min:x_max, z:z + 1, 0, 0]).astype(numpy.float32)
                     neighbor_tile = (neighbor_tile - mins) / (maxs - mins)
                     if original_c != 0:
-                        current_component = original_c * neighbor_tile * (maxs - mins) + mins
+                        
+                        # apply the coefficient
+                        current_component = original_c * neighbor_tile
+                        current_component[current_component < 0] = 0
+                        
+                        # Rescale, but do not add in the minimum value offset.
+                        current_component *= (maxs - mins)
                         original_component += current_component.astype(tile.dtype)
 
                 original_writer[y_min:y_max, x_min:x_max, z:z + 1, 0, 0] = original_component
