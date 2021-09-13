@@ -9,16 +9,14 @@ import numpy
 import scipy.stats
 from bfio import BioReader
 
-from utils import constants
-from utils import helpers
-from utils import types
+import utils
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     datefmt='%d-%b-%y %H:%M:%S',
 )
 logger = logging.getLogger('selectors')
-logger.setLevel(constants.POLUS_LOG)
+logger.setLevel(utils.POLUS_LOG)
 
 
 class Selector(abc.ABC):
@@ -40,23 +38,23 @@ class Selector(abc.ABC):
         self.__num_tiles_per_channel = num_tiles_per_channel
 
         with ProcessPoolExecutor() as executor:
-            scores: list[Future[types.ScoresDict]] = [
+            scores: list[Future[utils.ScoresDict]] = [
                 executor.submit(self._score_tiles_thread, file_path)
                 for file_path in self.__files
             ]
-            self.__scores: list[types.ScoresDict] = [future.result() for future in scores]
+            self.__scores: list[utils.ScoresDict] = [future.result() for future in scores]
 
-        self.__selected_tiles: types.TileIndices = self._select_best_tiles()
+        self.__selected_tiles: utils.TileIndices = self._select_best_tiles()
 
     @property
-    def selected_tiles(self) -> types.TileIndices:
+    def selected_tiles(self) -> utils.TileIndices:
         return self.__selected_tiles
 
     @abc.abstractmethod
     def _score_tile(self, tile: numpy.ndarray) -> float:
         raise NotImplementedError(f'Any subclass of Criterion must implement the \'score_tile\' method.')
 
-    def _score_tiles_thread(self, file_path: Path) -> types.ScoresDict:
+    def _score_tiles_thread(self, file_path: Path) -> utils.ScoresDict:
         """ This method runs in a single thread and scores all tiles for a single file.
 
         Args:
@@ -67,10 +65,10 @@ class Selector(abc.ABC):
         """
         with BioReader(file_path) as reader:
 
-            scores_dict: types.ScoresDict = dict()
+            scores_dict: utils.ScoresDict = dict()
             logger.info(f'Ranking tiles in {file_path.name}...')
-            num_tiles = helpers.count_tiles(reader)
-            for i, (z_min, z_max, y_min, y_max, x_min, x_max) in enumerate(helpers.tile_indices(reader)):
+            num_tiles = utils.count_tiles(reader)
+            for i, (z_min, z_max, y_min, y_max, x_min, x_max) in enumerate(utils.tile_indices(reader)):
                 if i % 10 == 0:
                     logger.info(f'Ranking tiles in {file_path.name}. Progress {100 * i / num_tiles:6.2f} %')
 
@@ -79,7 +77,7 @@ class Selector(abc.ABC):
 
         return scores_dict
 
-    def _select_best_tiles(self) -> types.TileIndices:
+    def _select_best_tiles(self) -> utils.TileIndices:
         """ Sort the tiles based on their scores and select the best few from each channel
 
         Returns:

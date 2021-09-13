@@ -11,16 +11,14 @@ from bfio import BioWriter
 from skimage import img_as_float32
 from sklearn import linear_model
 
-from utils import constants
-from utils import helpers
-from utils import types
+import utils
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     datefmt='%d-%b-%y %H:%M:%S',
 )
 logger = logging.getLogger('models')
-logger.setLevel(constants.POLUS_LOG)
+logger.setLevel(utils.POLUS_LOG)
 
 
 class Model(abc.ABC):
@@ -31,7 +29,7 @@ class Model(abc.ABC):
     def __init__(
             self,
             files: list[Path],
-            selected_tiles: types.TileIndices,
+            selected_tiles: utils.TileIndices,
             channel_overlap: int,
     ):
         """ Trains a model on the given files.
@@ -64,8 +62,9 @@ class Model(abc.ABC):
         neighbor_indices = list(filter(lambda i: 0 <= i < len(self.__files), neighbor_indices))
         return neighbor_indices
 
-    def _fit_thread(self, source_index: int, selected_tiles: types.TileIndices) -> list[float]:
-        """ Trains a single model on a single source-channel and returns the mixing coefficients with the adjacent channels.
+    def _fit_thread(self, source_index: int, selected_tiles: utils.TileIndices) -> list[float]:
+        """ Trains a single model on a single source-channel and
+         returns the mixing coefficients with the adjacent channels.
 
         This function can be run inside a thread in a ProcessPoolExecutor.
 
@@ -73,7 +72,8 @@ class Model(abc.ABC):
             source_index: Index of the source channel.
 
         Returns:
-            A list of the mixing coefficient with each neighboring channel within self.__channel_overlap of the source channel.
+            A list of the mixing coefficient with each neighboring channel
+             within self.__channel_overlap of the source channel.
         """
         with BioReader(self.__files[source_index]) as source_reader:
             neighbor_readers = [
@@ -84,7 +84,10 @@ class Model(abc.ABC):
             logger.info(f'Fitting {self.__class__.__name__} {source_index} on {len(selected_tiles)} tiles...')
             model = self._init_model()
             for i, (z_min, z_max, y_min, y_max, x_min, x_max) in enumerate(selected_tiles):
-                logger.info(f'Fitting {self.__class__.__name__} {source_index}: Progress: {100 * i / len(selected_tiles):6.2f} %')
+                logger.info(
+                    f'Fitting {self.__class__.__name__} {source_index}: '
+                    f'Progress: {100 * i / len(selected_tiles):6.2f} %'
+                )
 
                 tiles: list[numpy.ndarray] = [
                     numpy.squeeze(source_reader[y_min:y_max, x_min:x_max, z_min:z_max, 0, 0]).flatten()
@@ -107,7 +110,7 @@ class Model(abc.ABC):
 
         return coefficients
 
-    def _fit(self, selected_tiles: types.TileIndices) -> numpy.ndarray:
+    def _fit(self, selected_tiles: utils.TileIndices) -> numpy.ndarray:
         """ Fits the model on the images and returns a matrix of mixing coefficients. """
 
         with ProcessPoolExecutor() as executor:
@@ -134,7 +137,7 @@ class Model(abc.ABC):
             self,
             destination_dir: Path,
             pattern: str,
-            group: list[types.FPFileDict],
+            group: list[utils.FPFileDict],
     ):
         """ Write the matrix of mixing coefficients to a csv.
 
@@ -174,7 +177,7 @@ class Model(abc.ABC):
         """
         with ProcessPoolExecutor() as executor:
             for source_index, input_path in enumerate(self.__files):
-                writer_name = helpers.replace_extension(input_path.name)
+                writer_name = utils.replace_extension(input_path.name)
                 executor.submit(
                     self._write_components_thread,
                     destination_dir,
@@ -208,8 +211,8 @@ class Model(abc.ABC):
 
         with BioReader(self.__files[source_index]) as reader:
             metadata = reader.metadata
-            num_tiles = helpers.count_tiles_2d(reader)
-            tile_indices = list(helpers.tile_indices_2d(reader))
+            num_tiles = utils.count_tiles_2d(reader)
+            tile_indices = list(utils.tile_indices_2d(reader))
             dtype = reader.dtype
 
             original_writer = BioWriter(output_dir.joinpath(f'original_{image_name}'), metadata=metadata)
@@ -225,7 +228,9 @@ class Model(abc.ABC):
                 if i % 10 == 0:
                     logger.info(f'Writing {image_name}: Progress {100 * i / num_tiles:6.2f} %')
 
-                for neighbor_reader, original_c, interaction_c in zip(neighbor_readers, neighbor_coefficients, interaction_coefficients):
+                for neighbor_reader, original_c, interaction_c in zip(
+                        neighbor_readers, neighbor_coefficients, interaction_coefficients
+                ):
                     neighbor_tile = numpy.squeeze(neighbor_reader[y_min:y_max, x_min:x_max, z:z + 1, 0, 0])
                     if original_c != 0:
                         original_component += numpy.asarray((original_c * neighbor_tile), dtype=dtype)
