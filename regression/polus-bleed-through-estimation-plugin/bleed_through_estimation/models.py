@@ -26,7 +26,7 @@ logger.setLevel(constants.POLUS_LOG)
 class Model(abc.ABC):
     """ Base class for models that can be trained to estimate bleed-through. """
 
-    __slots__ = '__files', '__channel_overlap', '__coefficients'
+    __slots__ = '__files', '__channel_overlap', '__coefficients', '__num_pixels', '__kernel_size'
 
     def __init__(
             self,
@@ -34,6 +34,7 @@ class Model(abc.ABC):
             selected_tiles: types.TileIndices,
             image_mins,
             image_maxs,
+            kernel_size: int,
             channel_overlap: int,
     ):
         """ Trains a model on the given files.
@@ -45,9 +46,16 @@ class Model(abc.ABC):
         """
 
         self.__files = files
+        
         self.__channel_overlap = min(len(self.__files) - 1, max(1, channel_overlap))
+        
+        pad = 2 * (kernel_size // 2)
+        self.__num_pixels = min([constants.MAX_DATA_SIZE // (4 * kernel_size**2 * self.__channel_overlap*2),
+                                 (constants.TILE_SIZE_2D - pad)**2])
+        
+        self.__kernel_size = kernel_size
 
-        self.__coefficients = self._fit(selected_tiles,image_mins,image_maxs)
+        self.__coefficients = self._fit(selected_tiles[:5],image_mins,image_maxs,kernel_size)
 
     @abc.abstractmethod
     def _init_model(self):
@@ -66,7 +74,7 @@ class Model(abc.ABC):
         neighbor_indices = list(filter(lambda i: 0 <= i < len(self.__files), neighbor_indices))
         return neighbor_indices
 
-    def _fit_thread(self, source_index: int, selected_tiles: types.TileIndices, image_mins, image_maxs) -> list[float]:
+    def _fit_thread(self, source_index: int, selected_tiles: types.TileIndices, image_mins, image_maxs, kernel_size) -> list[float]:
         """ Trains a single model on a single source-channel and returns the mixing coefficients with the adjacent channels.
 
         This function can be run inside a thread in a ProcessPoolExecutor.
@@ -89,27 +97,44 @@ class Model(abc.ABC):
             maxs.extend([image_maxs[i] for i in self._get_neighbors(source_index)])
 
             logger.info(f'Fitting {self.__class__.__name__} {source_index} on {len(selected_tiles)} tiles...')
-            model = self._init_model()
+            model = self._init_model(kernel_size)
             for i, (z_min, z_max, y_min, y_max, x_min, x_max) in enumerate(selected_tiles):
                 logger.info(f'Fitting {self.__class__.__name__} {source_index}: Progress: {100 * i / len(selected_tiles):6.2f} %')
+                
+                pad = kernel_size // 2
+                num_pixels = (y_max - y_min - 2*pad) * (x_max - x_min - 2*pad)
+                if num_pixels > self.__num_pixels:
+                    indices = numpy.random.choice(num_pixels,size=(self.__num_pixels,),replace=False)
+                else:
+                    indices = numpy.arange(0,self.__num_pixels)
 
                 tiles: list[numpy.ndarray] = [
-                    numpy.squeeze(source_reader[y_min:y_max, x_min:x_max, z_min:z_max, 0, 0]).flatten()
+                    numpy.squeeze(source_reader[y_min+pad:y_max-pad,
+                                                x_min+pad:x_max-pad,
+                                                z_min:z_max, 0, 0]).flatten()[indices].astype(numpy.float32)
                 ]
-                tiles.extend(
-                    numpy.squeeze(reader[y_min:y_max, x_min:x_max, z_min:z_max, 0, 0]).flatten()
-                    for reader in neighbor_readers
-                )
+                tiles[0] = (tiles[0] - mins[0]) / (maxs[0] - mins[0])
                 
-                tiles: numpy.ndarray = numpy.asarray(tiles).T.astype(numpy.float32)
-                tiles = (tiles - numpy.asarray(mins)) / (numpy.asarray(maxs) - numpy.asarray(mins))
+                for i,reader in enumerate(neighbor_readers):
+                    image = numpy.squeeze(reader[y_min:y_max,
+                                                 x_min:x_max,
+                                                 z_min:z_max, 0, 0]).astype(numpy.float32)
+                    image = (image - mins[i+1]) / (maxs[i+1] - mins[i+1])
+                    for r in range(kernel_size):
+                        for c in range(kernel_size):
+                            tiles.append(image[r:image.shape[0]-kernel_size+r+1,
+                                               c:image.shape[1]-kernel_size+c+1].flatten()[indices])
+                
+                tiles: numpy.ndarray = numpy.asarray(tiles).T
                 tiles[tiles < 0] = 0
 
                 source, neighbors = tiles[:, 0], tiles[:, 1:]
                 interactions = numpy.sqrt(numpy.expand_dims(source, axis=1) * neighbors)
                 neighbors = numpy.concatenate([neighbors, interactions], axis=1)
 
+                logger.info('start fit...')
                 model.fit(neighbors, source)
+                logger.info('end fit...')
 
             coefficients = list(map(float, model.coef_))
             del model
@@ -117,26 +142,35 @@ class Model(abc.ABC):
 
         return coefficients
 
-    def _fit(self, selected_tiles: types.TileIndices, image_mins, image_maxs) -> numpy.ndarray:
+    def _fit(self, selected_tiles: types.TileIndices, image_mins, image_maxs, kernel_size) -> numpy.ndarray:
         """ Fits the model on the images and returns a matrix of mixing coefficients. """
 
         with ProcessPoolExecutor() as executor:
-            coefficients_list: list[Future[list[float]]] = [
-                executor.submit(self._fit_thread, source_index, selected_tiles, image_mins, image_maxs)
-                for source_index in range(len(self.__files))
-            ]
-            coefficients_list: list[list[float]] = [future.result() for future in coefficients_list]
+            # coefficients_list: list[Future[list[float]]] = [
+            #     executor.submit(self._fit_thread, source_index, selected_tiles, image_mins, image_maxs, kernel_size)
+            #     for source_index in range(len(self.__files))
+            # ]
+            
+            coefficients_list: list[list[float]] = [self._fit_thread(1, selected_tiles, image_mins, image_maxs, kernel_size)]
+            # coefficients_list: list[list[float]] = [future.result() for future in coefficients_list]
 
         coefficients_matrix = numpy.zeros(
-            shape=(len(self.__files), 2 * len(self.__files)),
+            shape=(len(self.__files), 2 * kernel_size**2 * len(self.__files)),
             dtype=numpy.float32,
         )
+        
         for i, coefficients in enumerate(coefficients_list):
-            neighbor_indices = self._get_neighbors(i)
+            neighbor_indices = self._get_neighbors(i+1)
             interaction_indices = [j + len(self.__files) for j in neighbor_indices]
 
             neighbor_indices = neighbor_indices + interaction_indices
-            coefficients_matrix[i, neighbor_indices] = coefficients
+            
+            # This is sloppy and should be properly rewritten
+            for n in range(len(neighbor_indices)):
+                current = neighbor_indices.pop(0)
+                neighbor_indices.extend(list(range(current*kernel_size**2,(current+1)*kernel_size**2)))
+            
+            coefficients_matrix[i+1, neighbor_indices] = coefficients
 
         return coefficients_matrix
 
@@ -160,10 +194,17 @@ class Model(abc.ABC):
         # noinspection PyTypeChecker
         name = filepattern.output_name(pattern, group, dict())
 
+        print(self.coefficients)
         metadata_path = destination_dir.joinpath(f'{name}_coefficients.csv')
         with open(metadata_path, 'w') as outfile:
-            header_1 = ','.join(f'c{c}' for c in range(len(self.__files)))
-            header_2 = ','.join(f'i{c}' for c in range(len(self.__files)))
+            header_1 = []
+            header_2 = []
+            for c in range(len(self.__files)):
+                header_1.extend([f'c{c}_{i}' for i in range(self.__kernel_size**2)])
+                header_2.extend([f'i{c}_{i}' for i in range(self.__kernel_size**2)])
+            
+            ','.join(header_1)
+            ','.join(header_2)
             outfile.write(f'channel,{header_1},{header_2}\n')
 
             for channel, row in enumerate(self.coefficients):
@@ -206,7 +247,8 @@ class Model(abc.ABC):
             image_name: str,
             source_index: int,
             image_maxs,
-            image_mins
+            image_mins,
+            kernel_size
     ):
         """ Writes the bleed-through components for a single image.
 
@@ -220,12 +262,13 @@ class Model(abc.ABC):
         neighbor_indices = self._get_neighbors(source_index)
 
         neighbor_readers = [BioReader(self.__files[i]) for i in neighbor_indices]
-        neighbor_coefficients = [float(c) for c in self.__coefficients[source_index, [neighbor_indices]][0]]
+        neighbor_coefficients = []
+        for i in range(self.coefficients//(2*kernel_size**2)):
+            neighbor_coefficients.append(numpy.ndarray(self.__coefficients[i*kernel_size**2:(i+1)*kernel_size**2]).reshape(kernel_size,kernel_size))
+        print(neighbor_coefficients)
+        quit()
         neighbor_maxs = [image_maxs[i] for i in neighbor_indices]
         neighbor_mins = [image_mins[i] for i in neighbor_indices]
-
-        interaction_indices = [j + len(self.__files) for j in neighbor_indices]
-        interaction_coefficients = [float(c) for c in self.__coefficients[source_index, [interaction_indices]][0]]
 
         with BioReader(self.__files[source_index]) as reader:
             metadata = reader.metadata
@@ -243,7 +286,7 @@ class Model(abc.ABC):
                 if i % 10 == 0:
                     logger.info(f'Writing {image_name}: Progress {100 * i / num_tiles:6.2f} %')
 
-                for neighbor_reader, original_c, interaction_c, maxs, mins in zip(neighbor_readers, neighbor_coefficients, interaction_coefficients,neighbor_maxs,neighbor_mins):
+                for neighbor_reader, original_c, maxs, mins in zip(neighbor_readers, neighbor_coefficients, neighbor_maxs,neighbor_mins):
                     neighbor_tile = numpy.squeeze(neighbor_reader[y_min:y_max, x_min:x_max, z:z + 1, 0, 0]).astype(numpy.float32)
                     neighbor_tile = (neighbor_tile - mins) / (maxs - mins)
                     if original_c != 0:
@@ -255,7 +298,7 @@ class Model(abc.ABC):
                         # Rescale, but do not add in the minimum value offset.
                         current_component *= (maxs - mins)
                         original_component += current_component.astype(tile.dtype)
-
+                        
                 original_writer[y_min:y_max, x_min:x_max, z:z + 1, 0, 0] = original_component
 
         original_writer.close()
@@ -272,19 +315,19 @@ class Lasso(Model):
     https://doi.org/10.1038/s41467-021-21735-x
     https://github.com/RoysamLab/whole_brain_analysis
     """
-    def _init_model(self):
-        return linear_model.Lasso(alpha=1e-4, copy_X=True, positive=True, warm_start=True, max_iter=10)
+    def _init_model(self,kernel_size):
+        return linear_model.Lasso(alpha=1e-4, copy_X=True, positive=True, warm_start=True, max_iter=kernel_size**2*10)
 
 
 class ElasticNet(Model):
     """ Uses sklearn.linear_model.ElasticNet """
-    def _init_model(self):
+    def _init_model(self,kernel_size):
         return linear_model.ElasticNet(alpha=1e-4, warm_start=True)
 
 
 class PoissonGLM(Model):
     """ Uses sklearn.linear_model.PoissonRegressor """
-    def _init_model(self):
+    def _init_model(self,kernel_size):
         return linear_model.PoissonRegressor(alpha=1e-4, warm_start=True)
 
 

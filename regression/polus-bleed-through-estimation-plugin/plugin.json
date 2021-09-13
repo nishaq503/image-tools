@@ -1,6 +1,6 @@
 {
   "name": "Bleed-Through Estimation Plugin",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "title": "BleedThroughEstimation",
   "description": "Performs bleed-through estimation for images.",
   "author": "Najib Ishaq (najib.ishaq@axleinfo.com)",

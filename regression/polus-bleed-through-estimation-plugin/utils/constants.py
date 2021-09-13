@@ -7,3 +7,4 @@ POLUS_EXT = os.environ.get('POLUS_EXT', '.ome.tif')
 # NUM_THREADS = max(1, int(cpu_count() * 0.5))  # TODO: What's the point?
 TILE_SIZE_2D = 1024 * 2
 TILE_SIZE_3D = 128
+MAX_DATA_SIZE = 2**31 # Limit to loading 500MB of pixels

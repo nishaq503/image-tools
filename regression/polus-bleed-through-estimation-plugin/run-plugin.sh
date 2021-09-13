@@ -13,6 +13,7 @@ POLUS_EXT=".ome.tif"
 inpDir=/data/input
 filePattern="S1_R1_C1-C11_A1_y0(00-14)_x0(00-21)_c0{cc}.ome.tif"
 groupBy="c"
+kernelSize=3
 
 # Output paths
 outDir=/data/output
@@ -26,5 +27,6 @@ docker run --mount type=bind,source=${data_path},target=/data/ \
             polusai/bleed-through-estimation-plugin:"${version}" \
             --inpDir ${inpDir} \
             --filePattern ${filePattern} \
+            --kernelSize ${kernelSize} \
             --groupBy ${groupBy} \
             --outDir ${outDir}
