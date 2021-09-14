@@ -3,6 +3,7 @@ import logging
 from concurrent.futures import Future
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
+from typing import Type
 
 import filepattern
 import numpy
@@ -273,7 +274,7 @@ class PoissonGLM(Model):
 
 
 """ A dictionary to let us use a model by name. """
-MODELS = {
+MODELS: dict[str, Type[Model]] = {
     'Lasso': Lasso,
     'PoissonGLM': PoissonGLM,
     'ElasticNet': ElasticNet,

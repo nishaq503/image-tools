@@ -4,6 +4,7 @@ from concurrent.futures import Future
 from concurrent.futures import ProcessPoolExecutor
 from operator import itemgetter
 from pathlib import Path
+from typing import Type
 
 import numpy
 import scipy.stats
@@ -22,19 +23,22 @@ logger.setLevel(utils.POLUS_LOG)
 class Selector(abc.ABC):
     """ Base class for tile-selection methods. """
 
-    __slots__ = '__files', '__is_high_better', '__num_tiles_per_channel', '__scores', '__selected_tiles'
+    __slots__ = (
+        '__files',
+        '__is_high_better',
+        '__num_tiles_per_channel',
+        '__scores',
+        '__selected_tiles',
+    )
 
-    # noinspection PyTypeChecker
-    def __init__(self, files: list[Path], num_tiles_per_channel: int, is_high_better: bool):
+    def __init__(self, files: list[Path], num_tiles_per_channel: int):
         """ Scores all tiles in each image and selects the best few from each image for training a model.
         
         Args:
             files: List of paths to images from which tiles will be selected.
             num_tiles_per_channel: How many tiles to select from each channel.
-            is_high_better: Whether higher scoring tiles are better.
         """
         self.__files = files
-        self.__is_high_better = is_high_better
         self.__num_tiles_per_channel = num_tiles_per_channel
 
         with ProcessPoolExecutor() as executor:
@@ -101,7 +105,8 @@ class HighEntropy(Selector):
         return float(scipy.stats.entropy(counts))
 
     def __init__(self, files: list[Path], num_tiles_per_channel: int):
-        super().__init__(files, num_tiles_per_channel, True)
+        self.__is_high_better = True
+        super().__init__(files, num_tiles_per_channel)
 
 
 class HighMeanIntensity(Selector):
@@ -110,7 +115,8 @@ class HighMeanIntensity(Selector):
         return float(numpy.mean(tile))
 
     def __init__(self, files: list[Path], num_tiles_per_channel: int):
-        super().__init__(files, num_tiles_per_channel, True)
+        self.__is_high_better = True
+        super().__init__(files, num_tiles_per_channel)
 
 
 class HighMedianIntensity(Selector):
@@ -119,7 +125,8 @@ class HighMedianIntensity(Selector):
         return float(numpy.median(tile))
 
     def __init__(self, files: list[Path], num_tiles_per_channel: int):
-        super().__init__(files, num_tiles_per_channel, True)
+        self.__is_high_better = True
+        super().__init__(files, num_tiles_per_channel)
 
 
 class LargeIntensityRange(Selector):
@@ -128,11 +135,12 @@ class LargeIntensityRange(Selector):
         return float(numpy.percentile(tile, 90) - numpy.percentile(tile, 10))
 
     def __init__(self, files: list[Path], num_tiles_per_channel: int):
-        super().__init__(files, num_tiles_per_channel, True)
+        self.__is_high_better = True
+        super().__init__(files, num_tiles_per_channel)
 
 
 """ A Dictionary to let us use a Selector by name. """
-SELECTORS = {
+SELECTORS: dict[str, Type[Selector]] = {
     'HighEntropy': HighEntropy,
     'HighMeanIntensity': HighMeanIntensity,
     'HighMedianIntensity': HighMedianIntensity,
