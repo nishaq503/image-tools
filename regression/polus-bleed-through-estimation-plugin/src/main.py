@@ -44,14 +44,14 @@ def estimate_bleed_through(
     selector = SELECTORS[selector_name](files, num_tiles_per_channel=10)
 
     logger.info(f'training models...')
-    model = MODELS[model_name](files, selector.selected_tiles, channel_overlap)
+    model = MODELS[model_name](files, selector.selected_tiles, selector.image_mins, selector.image_maxs, channel_overlap)
 
     logger.info(f'exporting coefficients...')
     model.coefficients_to_csv(metadata_dir, pattern, group)
 
     if output_dir is not None:
         logger.info('writing bleed-through components...')
-        model.write_components(output_dir)
+        model.write_components(output_dir, selector.image_maxs, selector.image_mins)
 
     return
 

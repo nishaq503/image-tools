@@ -9,7 +9,6 @@ import filepattern
 import numpy
 from bfio import BioReader
 from bfio import BioWriter
-from skimage import img_as_float32
 from sklearn import linear_model
 
 import utils
@@ -25,12 +24,20 @@ logger.setLevel(utils.POLUS_LOG)
 class Model(abc.ABC):
     """ Base class for models that can be trained to estimate bleed-through. """
 
-    __slots__ = '__files', '__channel_overlap', '__coefficients'
+    __slots__ = (
+        '__files',
+        '__channel_overlap',
+        '__coefficients',
+        '__image_mins',
+        '__image_maxs',
+    )
 
     def __init__(
             self,
             files: list[Path],
             selected_tiles: utils.TileIndices,
+            image_mins: list[int],
+            image_maxs: list[int],
             channel_overlap: int,
     ):
         """ Trains a model on the given files.
@@ -38,10 +45,14 @@ class Model(abc.ABC):
         Args:
             files: Paths to images on which the model will be trained.
             selected_tiles: A list of indices of the tiles on which to train the model.
+            image_mins: A list of the minimum brightnesses of all selected tiles for each channel.
+            image_maxs: A list of the maximum brightnesses of all selected tiles for each channel.
             channel_overlap: The number of adjacent channels to consider for bleed-through estimation.
         """
 
         self.__files = files
+        self.__image_mins = image_mins
+        self.__image_maxs = image_maxs
         self.__channel_overlap = min(len(self.__files) - 1, max(1, channel_overlap))
 
         self.__coefficients = self._fit(selected_tiles)
@@ -55,6 +66,14 @@ class Model(abc.ABC):
     def coefficients(self) -> numpy.ndarray:
         """ Returns the matrix of mixing coefficients from the trained model. """
         return self.__coefficients
+
+    @property
+    def image_mins(self) -> list[int]:
+        return self.__image_mins
+
+    @property
+    def image_maxs(self) -> list[int]:
+        return self.__image_maxs
 
     def _get_neighbors(self, source_index: int) -> list[int]:
         """ Get the neighboring channels for the given source-channel. """
@@ -82,6 +101,11 @@ class Model(abc.ABC):
                 for i in self._get_neighbors(source_index)
             ]
 
+            mins = [self.image_mins[source_index]]
+            mins.extend([self.image_mins[i] for i in self._get_neighbors(source_index)])
+            maxs = [self.image_maxs[source_index]]
+            maxs.extend([self.image_maxs[i] for i in self._get_neighbors(source_index)])
+
             logger.info(f'Fitting {self.__class__.__name__} {source_index} on {len(selected_tiles)} tiles...')
             model = self._init_model()
             for i, (z_min, z_max, y_min, y_max, x_min, x_max) in enumerate(selected_tiles):
@@ -97,10 +121,15 @@ class Model(abc.ABC):
                     numpy.squeeze(reader[y_min:y_max, x_min:x_max, z_min:z_max, 0, 0]).flatten()
                     for reader in neighbor_readers
                 )
-                tiles: numpy.ndarray = img_as_float32(numpy.asarray(tiles).T)
+                tiles = numpy.asarray(tiles, dtype=numpy.float32).T
+                tiles: numpy.ndarray = numpy.clip(
+                    a=(tiles - numpy.asarray(mins)) / (numpy.asarray(maxs) - numpy.asarray(mins)),
+                    a_min=0,
+                    a_max=1,
+                )
 
                 source, neighbors = tiles[:, 0], tiles[:, 1:]
-                interactions = numpy.expand_dims(source, axis=1) * neighbors
+                interactions: numpy.ndarray = numpy.sqrt(numpy.expand_dims(source, axis=1) * neighbors)
                 neighbors = numpy.concatenate([neighbors, interactions], axis=1)
 
                 model.fit(neighbors, source)
@@ -177,14 +206,18 @@ class Model(abc.ABC):
                               be written.
         """
         with ProcessPoolExecutor() as executor:
+            processes = list()
             for source_index, input_path in enumerate(self.__files):
                 writer_name = utils.replace_extension(input_path.name)
-                executor.submit(
+                processes.append(executor.submit(
                     self._write_components_thread,
                     destination_dir,
                     writer_name,
                     source_index,
-                )
+                ))
+
+            for process in processes:
+                process.result()
         return
 
     def _write_components_thread(
@@ -204,47 +237,47 @@ class Model(abc.ABC):
         """
         neighbor_indices = self._get_neighbors(source_index)
 
-        neighbor_readers = [BioReader(self.__files[i]) for i in neighbor_indices]
-        neighbor_coefficients = [float(c) for c in self.__coefficients[source_index, [neighbor_indices]]]
-
-        interaction_indices = [j + len(self.__files) for j in neighbor_indices]
-        interaction_coefficients = [float(c) for c in self.__coefficients[source_index, [interaction_indices]]]
+        readers = [BioReader(self.__files[i]) for i in neighbor_indices]
+        coefficients = [float(c) for c in self.__coefficients[source_index, [neighbor_indices]][0]]
+        neighbor_mins = [self.image_mins[i] for i in neighbor_indices]
+        neighbor_maxs = [self.image_maxs[i] for i in neighbor_indices]
 
         with BioReader(self.__files[source_index]) as reader:
             metadata = reader.metadata
             num_tiles = utils.count_tiles_2d(reader)
             tile_indices = list(utils.tile_indices_2d(reader))
-            dtype = reader.dtype
 
-            original_writer = BioWriter(output_dir.joinpath(f'original_{image_name}'), metadata=metadata)
-            interaction_writer = BioWriter(output_dir.joinpath(f'interaction_{image_name}'), metadata=metadata)
-            both_writer = BioWriter(output_dir.joinpath(f'both_{image_name}'), metadata=metadata)
+            with BioWriter(output_dir.joinpath(image_name), metadata=metadata) as writer:
 
-            logger.info(f'Writing components for {image_name}...')
-            for i, (z, y_min, y_max, x_min, x_max) in enumerate(tile_indices):
-                tile = numpy.squeeze(reader[y_min:y_max, x_min:x_max, z:z + 1, 0, 0])
+                logger.info(f'Writing components for {image_name}...')
+                for i, (z, y_min, y_max, x_min, x_max) in enumerate(tile_indices):
+                    tile = numpy.squeeze(reader[y_min:y_max, x_min:x_max, z:z + 1, 0, 0])
 
-                original_component, interaction_component = numpy.zeros_like(tile), numpy.zeros_like(tile)
+                    original_component = numpy.zeros_like(tile)
 
-                if i % 10 == 0:
-                    logger.info(f'Writing {image_name}: Progress {100 * i / num_tiles:6.2f} %')
+                    if i % 10 == 0:
+                        logger.info(f'Writing {image_name}: Progress {100 * i / num_tiles:6.2f} %')
 
-                for neighbor_reader, original_c, interaction_c in zip(
-                        neighbor_readers, neighbor_coefficients, interaction_coefficients
-                ):
-                    neighbor_tile = numpy.squeeze(neighbor_reader[y_min:y_max, x_min:x_max, z:z + 1, 0, 0])
-                    if original_c != 0:
-                        original_component += numpy.asarray((original_c * neighbor_tile), dtype=dtype)
+                    for neighbor_reader, original_c, mins, maxs in zip(
+                            readers, coefficients, neighbor_mins, neighbor_maxs
+                    ):
+                        neighbor_tile = numpy.squeeze(
+                            neighbor_reader[y_min:y_max, x_min:x_max, z:z + 1, 0, 0]
+                        ).astype(numpy.float32)
+                        neighbor_tile = (neighbor_tile - mins) / (maxs - mins)
 
-                    if interaction_c != 0:
-                        interaction_component += numpy.asarray((interaction_c * neighbor_tile * tile), dtype=dtype)
+                        if original_c != 0:
+                            # apply the coefficient
+                            current_component = original_c * neighbor_tile
+                            current_component[current_component < 0] = 0
 
-                original_writer[y_min:y_max, x_min:x_max, z:z + 1, 0, 0] = original_component
-                interaction_writer[y_min:y_max, x_min:x_max, z:z + 1, 0, 0] = interaction_component
-                both_writer[y_min:y_max, x_min:x_max, z:z + 1, 0, 0] = original_component + interaction_component
+                            # Rescale, but do not add in the minimum value offset.
+                            current_component *= (maxs - mins)
+                            original_component += current_component.astype(tile.dtype)
 
-        original_writer.close(), interaction_writer.close(), both_writer.close()
-        [reader.close() for reader in neighbor_readers]
+                    writer[y_min:y_max, x_min:x_max, z:z + 1, 0, 0] = original_component
+
+        [reader.close() for reader in readers]
         return
 
 

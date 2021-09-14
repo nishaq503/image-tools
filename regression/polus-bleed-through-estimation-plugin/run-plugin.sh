@@ -1,7 +1,7 @@
 #!/bin/bash
 
 version=$(<VERSION)
-data_path=$(readlink --canonicalize ../../../data/bleed_through_estimation)
+data_path=$(readlink --canonicalize ../../data/bleed_through_estimation)
 
 # Must be one of ERROR, CRITICAL, WARNING, INFO, DEBUG
 POLUS_LOG=INFO

@@ -29,6 +29,8 @@ class Selector(abc.ABC):
         '__num_tiles_per_channel',
         '__scores',
         '__selected_tiles',
+        '__min',
+        '__max',
     )
 
     def __init__(self, files: list[Path], num_tiles_per_channel: int):
@@ -40,13 +42,20 @@ class Selector(abc.ABC):
         """
         self.__files = files
         self.__num_tiles_per_channel = num_tiles_per_channel
+        self.__min = list()
+        self.__max = list()
 
         with ProcessPoolExecutor() as executor:
-            scores: list[Future[utils.ScoresDict]] = [
+            futures: list[Future[tuple[utils.ScoresDict, int, int]]] = [
                 executor.submit(self._score_tiles_thread, file_path)
                 for file_path in self.__files
             ]
-            self.__scores: list[utils.ScoresDict] = [future.result() for future in scores]
+            self.__scores: list[utils.ScoresDict] = list()
+            for future in futures:
+                score, image_min, image_max = future.result()
+                self.__scores.append(score)
+                self.__min.append(image_min)
+                self.__max.append(image_max)
 
         self.__selected_tiles: utils.TileIndices = self._select_best_tiles()
 
@@ -54,11 +63,19 @@ class Selector(abc.ABC):
     def selected_tiles(self) -> utils.TileIndices:
         return self.__selected_tiles
 
+    @property
+    def image_mins(self) -> list[int]:
+        return self.__min
+
+    @property
+    def image_maxs(self) -> list[int]:
+        return self.__max
+
     @abc.abstractmethod
     def _score_tile(self, tile: numpy.ndarray) -> float:
         raise NotImplementedError(f'Any subclass of Criterion must implement the \'score_tile\' method.')
 
-    def _score_tiles_thread(self, file_path: Path) -> utils.ScoresDict:
+    def _score_tiles_thread(self, file_path: Path) -> tuple[utils.ScoresDict, int, int]:
         """ This method runs in a single thread and scores all tiles for a single file.
 
         Args:
@@ -72,6 +89,9 @@ class Selector(abc.ABC):
             scores_dict: utils.ScoresDict = dict()
             logger.info(f'Ranking tiles in {file_path.name}...')
             num_tiles = utils.count_tiles(reader)
+            image_min = numpy.iinfo(reader.dtype).max
+            image_max = -numpy.iinfo(reader.dtype).min
+
             for i, (z_min, z_max, y_min, y_max, x_min, x_max) in enumerate(utils.tile_indices(reader)):
                 if i % 10 == 0:
                     logger.info(f'Ranking tiles in {file_path.name}. Progress {100 * i / num_tiles:6.2f} %')
@@ -79,7 +99,10 @@ class Selector(abc.ABC):
                 tile = numpy.squeeze(reader[y_min:y_max, x_min:x_max, z_min:z_max, 0, 0])
                 scores_dict[(z_min, z_max, y_min, y_max, x_min, x_max)] = self._score_tile(tile)
 
-        return scores_dict
+                image_min = numpy.min(tile[tile > 0], initial=image_min)
+                image_max = numpy.max(tile, initial=image_max)
+
+        return scores_dict, image_min, image_max
 
     def _select_best_tiles(self) -> utils.TileIndices:
         """ Sort the tiles based on their scores and select the best few from each channel
