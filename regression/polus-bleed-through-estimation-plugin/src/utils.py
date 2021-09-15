@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Generator
 from typing import Union
 
+import numpy
 from bfio import BioReader
 from bfio import BioWriter
 
@@ -13,6 +14,8 @@ POLUS_EXT = os.environ.get('POLUS_EXT', '.ome.tif')
 # NUM_THREADS = max(1, int(cpu_count() * 0.5))  # TODO: What's the point?
 TILE_SIZE_2D = 1024 * 2
 TILE_SIZE_3D = 128
+MAX_DATA_SIZE = 2 ** 31  # Limit to loading 500MB of pixels
+EPSILON = 1e-8  # To avoid divide-by-zero errors
 
 
 """
@@ -54,6 +57,14 @@ def count_tiles(reader_or_writer: Union[BioReader, BioWriter]) -> int:
         len(range(0, reader_or_writer.X, tile_size))
     )
     return num_tiles
+
+
+def normalize_tile(tile: numpy.ndarray, min_val: float, max_val: float) -> numpy.ndarray:
+    """ min-max normalization of a tile from an image.
+    Also converts the dtype to numpy.float32
+    """
+    tile = (numpy.asarray(tile, dtype=numpy.float32) - min_val) / (max_val - min_val + EPSILON)
+    return numpy.clip(tile, 0., 1.)
 
 
 def tile_indices(

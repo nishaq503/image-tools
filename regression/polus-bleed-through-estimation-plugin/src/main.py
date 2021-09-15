@@ -40,18 +40,25 @@ def estimate_bleed_through(
     """
     files = [file['file'] for file in group]
 
-    logger.info(f'selecting tiles...')
+    logger.info('selecting tiles...')
     selector = SELECTORS[selector_name](files, num_tiles_per_channel=10)
 
-    logger.info(f'training models...')
-    model = MODELS[model_name](files, selector.selected_tiles, selector.image_mins, selector.image_maxs, channel_overlap)
+    logger.info('training models...')
+    model = MODELS[model_name](
+        files=files,
+        selected_tiles=selector.selected_tiles,
+        image_mins=selector.image_mins,
+        image_maxs=selector.image_maxs,
+        channel_overlap=channel_overlap,
+        kernel_size=3,  # TODO: Add as input param. enum 1, 3, 5
+    )
 
-    logger.info(f'exporting coefficients...')
+    logger.info('exporting coefficients...')
     model.coefficients_to_csv(metadata_dir, pattern, group)
 
     if output_dir is not None:
         logger.info('writing bleed-through components...')
-        model.write_components(output_dir, selector.image_maxs, selector.image_mins)
+        model.write_components(output_dir)
 
     return
 

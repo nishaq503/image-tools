@@ -30,6 +30,8 @@ class Model(abc.ABC):
         '__coefficients',
         '__image_mins',
         '__image_maxs',
+        '__kernel_size',
+        '__num_pixels',
     )
 
     def __init__(
@@ -39,6 +41,7 @@ class Model(abc.ABC):
             image_mins: list[int],
             image_maxs: list[int],
             channel_overlap: int,
+            kernel_size: int,
     ):
         """ Trains a model on the given files.
 
@@ -48,12 +51,20 @@ class Model(abc.ABC):
             image_mins: A list of the minimum brightnesses of all selected tiles for each channel.
             image_maxs: A list of the maximum brightnesses of all selected tiles for each channel.
             channel_overlap: The number of adjacent channels to consider for bleed-through estimation.
+            kernel_size: The size of the convolutional kernel used to estimate bleed-through.
         """
 
         self.__files = files
         self.__image_mins = image_mins
         self.__image_maxs = image_maxs
         self.__channel_overlap = min(len(self.__files) - 1, max(1, channel_overlap))
+        self.__kernel_size = kernel_size
+
+        pad = 2 * (kernel_size // 2)
+        self.__num_pixels = min(
+            utils.MAX_DATA_SIZE // (4 * kernel_size ** 2 * self.__channel_overlap * 2),
+            (utils.TILE_SIZE_2D - pad) ** 2,
+        )
 
         self.__coefficients = self._fit(selected_tiles)
 
@@ -114,25 +125,47 @@ class Model(abc.ABC):
                     f'Progress: {100 * i / len(selected_tiles):6.2f} %'
                 )
 
-                tiles: list[numpy.ndarray] = [
-                    numpy.squeeze(source_reader[y_min:y_max, x_min:x_max, z_min:z_max, 0, 0]).flatten()
-                ]
-                tiles.extend(
-                    numpy.squeeze(reader[y_min:y_max, x_min:x_max, z_min:z_max, 0, 0]).flatten()
-                    for reader in neighbor_readers
-                )
+                pad = self.__kernel_size // 2
+                source_tile: numpy.ndarray = numpy.squeeze(
+                    source_reader[
+                        y_min + pad:y_max - pad,
+                        x_min + pad:x_max - pad,
+                        z_min + pad:z_max - pad,
+                        0, 0
+                    ]
+                ).flatten()
+                source_tile = utils.normalize_tile(source_tile, mins[0], maxs[0])
+
+                num_pixels = (y_max - y_min - 2 * pad) * (x_max - x_min - 2 * pad)
+                if num_pixels > self.__num_pixels:
+                    indices = numpy.random.choice(num_pixels, size=(self.__num_pixels,), replace=False)
+                else:
+                    indices = numpy.arange(0, self.__num_pixels)
+
+                tiles: list[numpy.ndarray] = [source_tile[indices]]
+
+                for reader, min_val, max_val in zip(neighbor_readers, mins[1:], maxs[1:]):
+                    tile = reader[y_min:y_max, x_min:x_max, z_min:z_max, 0, 0]
+                    tile = utils.normalize_tile(tile, min_val, max_val)
+
+                    for r in range(self.__kernel_size):
+                        tile_y_min, tile_y_max = r, 1 + r - self.__kernel_size + tile.shape[0]
+
+                        for c in range(self.__kernel_size):
+                            tile_x_min, tile_x_max = c, 1 + c - self.__kernel_size + tile.shape[1]
+
+                            cropped_tile = tile[tile_y_min:tile_y_max, tile_x_min:tile_x_max]
+                            tiles.append(cropped_tile.flatten()[indices])
+
                 tiles = numpy.asarray(tiles, dtype=numpy.float32).T
-                tiles: numpy.ndarray = numpy.clip(
-                    a=(tiles - numpy.asarray(mins)) / (numpy.asarray(maxs) - numpy.asarray(mins)),
-                    a_min=0,
-                    a_max=1,
-                )
 
                 source, neighbors = tiles[:, 0], tiles[:, 1:]
                 interactions: numpy.ndarray = numpy.sqrt(numpy.expand_dims(source, axis=1) * neighbors)
                 neighbors = numpy.concatenate([neighbors, interactions], axis=1)
 
+                logger.info('start fit...')
                 model.fit(neighbors, source)
+                logger.info('end fit...')
 
             coefficients = list(map(float, model.coef_))
             del model
@@ -143,18 +176,24 @@ class Model(abc.ABC):
     def _fit(self, selected_tiles: utils.TileIndices) -> numpy.ndarray:
         """ Fits the model on the images and returns a matrix of mixing coefficients. """
 
-        with ProcessPoolExecutor() as executor:
-            coefficients_list: list[Future[list[float]]] = [
-                executor.submit(self._fit_thread, source_index, selected_tiles)
-                for source_index in range(len(self.__files))
-            ]
-            coefficients_list: list[list[float]] = [future.result() for future in coefficients_list]
+        # with ProcessPoolExecutor() as executor:
+        #     coefficients_list: list[Future[list[float]]] = [
+        #         executor.submit(self._fit_thread, source_index, selected_tiles)
+        #         for source_index in range(len(self.__files))
+        #     ]
+        #     coefficients_list: list[list[float]] = [future.result() for future in coefficients_list]
+        coefficients_list: list[list[float]] = [
+            self._fit_thread(source_index, selected_tiles)
+            for source_index in range(len(self.__files))
+        ]
 
+        # TODO: Fix the rest...
         coefficients_matrix = numpy.zeros(
             shape=(len(self.__files), 2 * len(self.__files)),
             dtype=numpy.float32,
         )
         for i, coefficients in enumerate(coefficients_list):
+            # TODO: Can't use self._get_neighbors anymore
             neighbor_indices = self._get_neighbors(i)
             interaction_indices = [j + len(self.__files) for j in neighbor_indices]
 
@@ -290,18 +329,21 @@ class Lasso(Model):
     https://doi.org/10.1038/s41467-021-21735-x
     https://github.com/RoysamLab/whole_brain_analysis
     """
+
     def _init_model(self):
         return linear_model.Lasso(alpha=1e-4, copy_X=True, positive=True, warm_start=True, max_iter=10)
 
 
 class ElasticNet(Model):
     """ Uses sklearn.linear_model.ElasticNet """
+
     def _init_model(self):
         return linear_model.ElasticNet(alpha=1e-4, warm_start=True)
 
 
 class PoissonGLM(Model):
     """ Uses sklearn.linear_model.PoissonRegressor """
+
     def _init_model(self):
         return linear_model.PoissonRegressor(alpha=1e-4, warm_start=True)
 
