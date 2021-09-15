@@ -29,33 +29,36 @@ class Selector(abc.ABC):
         '__num_tiles_per_channel',
         '__scores',
         '__selected_tiles',
-        '__min',
-        '__max',
+        '__image_mins',
+        '__image_maxs',
     )
 
-    def __init__(self, files: list[Path], num_tiles_per_channel: int):
+    def __init__(self, files: list[Path], num_tiles_per_channel: int, is_high_better: bool = True):
         """ Scores all tiles in each image and selects the best few from each image for training a model.
         
         Args:
             files: List of paths to images from which tiles will be selected.
             num_tiles_per_channel: How many tiles to select from each channel.
+            is_high_better: Whether higher scoring tiles are better.
         """
         self.__files = files
         self.__num_tiles_per_channel = num_tiles_per_channel
-        self.__min = list()
-        self.__max = list()
+        self.__is_high_better = is_high_better
+
+        self.__image_mins = list()
+        self.__image_maxs = list()
+        self.__scores: list[utils.ScoresDict] = list()
 
         with ProcessPoolExecutor() as executor:
             futures: list[Future[tuple[utils.ScoresDict, int, int]]] = [
                 executor.submit(self._score_tiles_thread, file_path)
                 for file_path in self.__files
             ]
-            self.__scores: list[utils.ScoresDict] = list()
             for future in futures:
                 score, image_min, image_max = future.result()
                 self.__scores.append(score)
-                self.__min.append(image_min)
-                self.__max.append(image_max)
+                self.__image_mins.append(image_min)
+                self.__image_maxs.append(image_max)
 
         self.__selected_tiles: utils.TileIndices = self._select_best_tiles()
 
@@ -65,15 +68,15 @@ class Selector(abc.ABC):
 
     @property
     def image_mins(self) -> list[int]:
-        return self.__min
+        return self.__image_mins
 
     @property
     def image_maxs(self) -> list[int]:
-        return self.__max
+        return self.__image_maxs
 
     @abc.abstractmethod
     def _score_tile(self, tile: numpy.ndarray) -> float:
-        raise NotImplementedError(f'Any subclass of Criterion must implement the \'score_tile\' method.')
+        raise NotImplementedError(f'Any subclass of Criterion must implement the \'_score_tile\' method.')
 
     def _score_tiles_thread(self, file_path: Path) -> tuple[utils.ScoresDict, int, int]:
         """ This method runs in a single thread and scores all tiles for a single file.
@@ -92,12 +95,18 @@ class Selector(abc.ABC):
             image_min = numpy.iinfo(reader.dtype).max
             image_max = -numpy.iinfo(reader.dtype).min
 
-            for i, (z_min, z_max, y_min, y_max, x_min, x_max) in enumerate(utils.tile_indices(reader)):
+            for i, (_, _, y_min, y_max, x_min, x_max) in enumerate(utils.tile_indices(reader)):
                 if i % 10 == 0:
                     logger.info(f'Ranking tiles in {file_path.name}. Progress {100 * i / num_tiles:6.2f} %')
 
-                tile = numpy.squeeze(reader[y_min:y_max, x_min:x_max, z_min:z_max, 0, 0])
-                scores_dict[(z_min, z_max, y_min, y_max, x_min, x_max)] = self._score_tile(tile)
+                tile = numpy.squeeze(reader[y_min:y_max, x_min:x_max, 0, 0, 0])
+
+                # TODO: Actually handle 3d images properly with 3d tile-chunks.
+                key = (0, 1, y_min, y_max, x_min, x_max)
+                if key in scores_dict:
+                    scores_dict[key] = (max if self.__is_high_better else min)(scores_dict[key], self._score_tile(tile))
+                else:
+                    scores_dict[key] = self._score_tile(tile)
 
                 image_min = numpy.min(tile[tile > 0], initial=image_min)
                 image_max = numpy.max(tile, initial=image_max)
@@ -128,7 +137,6 @@ class HighEntropy(Selector):
         return float(scipy.stats.entropy(counts))
 
     def __init__(self, files: list[Path], num_tiles_per_channel: int):
-        self.__is_high_better = True
         super().__init__(files, num_tiles_per_channel)
 
 
@@ -138,7 +146,6 @@ class HighMeanIntensity(Selector):
         return float(numpy.mean(tile))
 
     def __init__(self, files: list[Path], num_tiles_per_channel: int):
-        self.__is_high_better = True
         super().__init__(files, num_tiles_per_channel)
 
 
@@ -148,7 +155,6 @@ class HighMedianIntensity(Selector):
         return float(numpy.median(tile))
 
     def __init__(self, files: list[Path], num_tiles_per_channel: int):
-        self.__is_high_better = True
         super().__init__(files, num_tiles_per_channel)
 
 
@@ -158,7 +164,6 @@ class LargeIntensityRange(Selector):
         return float(numpy.percentile(tile, 90) - numpy.percentile(tile, 10))
 
     def __init__(self, files: list[Path], num_tiles_per_channel: int):
-        self.__is_high_better = True
         super().__init__(files, num_tiles_per_channel)
 
 

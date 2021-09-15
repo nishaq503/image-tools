@@ -11,7 +11,7 @@ POLUS_EXT=".ome.tif"
 
 # Inputs
 inpDir=/data/input
-filePattern="r{rrr}_c{ccc}_z000.ome.tif"
+filePattern="c{c}_mixed.ome.tif"
 groupBy="c"
 
 # Output paths

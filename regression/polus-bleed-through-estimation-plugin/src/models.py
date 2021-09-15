@@ -7,6 +7,7 @@ from typing import Type
 
 import filepattern
 import numpy
+import scipy.ndimage
 from bfio import BioReader
 from bfio import BioWriter
 from sklearn import linear_model
@@ -62,7 +63,7 @@ class Model(abc.ABC):
 
         pad = 2 * (kernel_size // 2)
         self.__num_pixels = min(
-            utils.MAX_DATA_SIZE // (4 * kernel_size ** 2 * self.__channel_overlap * 2),
+            utils.MAX_DATA_SIZE // (4 * (kernel_size ** 2) * self.__channel_overlap * 2),
             (utils.TILE_SIZE_2D - pad) ** 2,
         )
 
@@ -93,6 +94,14 @@ class Model(abc.ABC):
         neighbor_indices = list(filter(lambda i: 0 <= i < len(self.__files), neighbor_indices))
         return neighbor_indices
 
+    def _get_kernel_indices(self, source_index: int) -> list[int]:
+        kernel_size = self.__kernel_size ** 2
+        return [
+            i * kernel_size + j
+            for i in self._get_neighbors(source_index)
+            for j in range(kernel_size)
+        ]
+
     def _fit_thread(self, source_index: int, selected_tiles: utils.TileIndices) -> list[float]:
         """ Trains a single model on a single source-channel and
          returns the mixing coefficients with the adjacent channels.
@@ -119,7 +128,7 @@ class Model(abc.ABC):
 
             logger.info(f'Fitting {self.__class__.__name__} {source_index} on {len(selected_tiles)} tiles...')
             model = self._init_model()
-            for i, (z_min, z_max, y_min, y_max, x_min, x_max) in enumerate(selected_tiles):
+            for i, (_, _, y_min, y_max, x_min, x_max) in enumerate(selected_tiles):
                 logger.info(
                     f'Fitting {self.__class__.__name__} {source_index}: '
                     f'Progress: {100 * i / len(selected_tiles):6.2f} %'
@@ -130,22 +139,20 @@ class Model(abc.ABC):
                     source_reader[
                         y_min + pad:y_max - pad,
                         x_min + pad:x_max - pad,
-                        z_min + pad:z_max - pad,
-                        0, 0
+                        0, 0, 0
                     ]
                 ).flatten()
                 source_tile = utils.normalize_tile(source_tile, mins[0], maxs[0])
 
-                num_pixels = (y_max - y_min - 2 * pad) * (x_max - x_min - 2 * pad)
-                if num_pixels > self.__num_pixels:
-                    indices = numpy.random.choice(num_pixels, size=(self.__num_pixels,), replace=False)
+                if source_tile.size > self.__num_pixels:
+                    indices = numpy.random.choice(source_tile.size, size=self.__num_pixels, replace=False)
                 else:
-                    indices = numpy.arange(0, self.__num_pixels)
+                    indices = numpy.arange(0, source_tile.size)
 
                 tiles: list[numpy.ndarray] = [source_tile[indices]]
 
                 for reader, min_val, max_val in zip(neighbor_readers, mins[1:], maxs[1:]):
-                    tile = reader[y_min:y_max, x_min:x_max, z_min:z_max, 0, 0]
+                    tile = reader[y_min:y_max, x_min:x_max, 0, 0, 0]
                     tile = utils.normalize_tile(tile, min_val, max_val)
 
                     for r in range(self.__kernel_size):
@@ -167,7 +174,7 @@ class Model(abc.ABC):
                 model.fit(neighbors, source)
                 logger.info('end fit...')
 
-            coefficients = list(map(float, model.coef_))
+            coefficients = list(map(float, model.coef_))[:len(neighbor_readers) * (self.__kernel_size ** 2)]
             del model
             [reader.close() for reader in neighbor_readers]
 
@@ -176,29 +183,25 @@ class Model(abc.ABC):
     def _fit(self, selected_tiles: utils.TileIndices) -> numpy.ndarray:
         """ Fits the model on the images and returns a matrix of mixing coefficients. """
 
-        # with ProcessPoolExecutor() as executor:
-        #     coefficients_list: list[Future[list[float]]] = [
-        #         executor.submit(self._fit_thread, source_index, selected_tiles)
-        #         for source_index in range(len(self.__files))
-        #     ]
-        #     coefficients_list: list[list[float]] = [future.result() for future in coefficients_list]
-        coefficients_list: list[list[float]] = [
-            self._fit_thread(source_index, selected_tiles)
-            for source_index in range(len(self.__files))
-        ]
+        with ProcessPoolExecutor() as executor:
+            coefficients_list: list[Future[list[float]]] = [
+                executor.submit(self._fit_thread, source_index, selected_tiles)
+                for source_index in range(len(self.__files))
+            ]
+            coefficients_list: list[list[float]] = [future.result() for future in coefficients_list]
+        # coefficients_list: list[list[float]] = [
+        #     self._fit_thread(source_index, selected_tiles)
+        #     for source_index in range(len(self.__files))
+        # ]
 
         # TODO: Fix the rest...
         coefficients_matrix = numpy.zeros(
-            shape=(len(self.__files), 2 * len(self.__files)),
+            shape=(len(self.__files), len(self.__files) * (self.__kernel_size ** 2)),
             dtype=numpy.float32,
         )
         for i, coefficients in enumerate(coefficients_list):
-            # TODO: Can't use self._get_neighbors anymore
-            neighbor_indices = self._get_neighbors(i)
-            interaction_indices = [j + len(self.__files) for j in neighbor_indices]
-
-            neighbor_indices = neighbor_indices + interaction_indices
-            coefficients_matrix[i, neighbor_indices] = coefficients
+            kernel_indices = self._get_kernel_indices(i)
+            coefficients_matrix[i, kernel_indices] = coefficients
 
         return coefficients_matrix
 
@@ -224,14 +227,16 @@ class Model(abc.ABC):
 
         metadata_path = destination_dir.joinpath(f'{name}_coefficients.csv')
         with open(metadata_path, 'w') as outfile:
-            header_1 = ','.join(f'c{c}' for c in range(len(self.__files)))
-            header_2 = ','.join(f'i{c}' for c in range(len(self.__files)))
-            outfile.write(f'channel,{header_1},{header_2}\n')
+            header = ','.join(
+                f'c{c}k{k}'
+                for c in range(len(self.__files))
+                for k in range(self.__kernel_size ** 2)
+            )
+            outfile.write(f'channel,{header}\n')
 
             for channel, row in enumerate(self.coefficients):
                 row = ','.join(f'{c:.6e}' for c in row)
                 outfile.write(f'c{channel},{row}\n')
-
         return
 
     def write_components(self, destination_dir: Path):
@@ -248,6 +253,11 @@ class Model(abc.ABC):
             processes = list()
             for source_index, input_path in enumerate(self.__files):
                 writer_name = utils.replace_extension(input_path.name)
+                self._write_components_thread(
+                    destination_dir,
+                    writer_name,
+                    source_index,
+                )
                 processes.append(executor.submit(
                     self._write_components_thread,
                     destination_dir,
@@ -257,6 +267,13 @@ class Model(abc.ABC):
 
             for process in processes:
                 process.result()
+        # for source_index, input_path in enumerate(self.__files):
+        #     writer_name = utils.replace_extension(input_path.name)
+        #     self._write_components_thread(
+        #         destination_dir,
+        #         writer_name,
+        #         source_index,
+        #     )
         return
 
     def _write_components_thread(
@@ -275,48 +292,57 @@ class Model(abc.ABC):
             source_index: index of the source channel.
         """
         neighbor_indices = self._get_neighbors(source_index)
-
-        readers = [BioReader(self.__files[i]) for i in neighbor_indices]
-        coefficients = [float(c) for c in self.__coefficients[source_index, [neighbor_indices]][0]]
         neighbor_mins = [self.image_mins[i] for i in neighbor_indices]
         neighbor_maxs = [self.image_maxs[i] for i in neighbor_indices]
 
-        with BioReader(self.__files[source_index]) as reader:
-            metadata = reader.metadata
-            num_tiles = utils.count_tiles_2d(reader)
-            tile_indices = list(utils.tile_indices_2d(reader))
+        coefficients = self.__coefficients[source_index]
+
+        neighbor_readers = [BioReader(self.__files[i]) for i in neighbor_indices]
+
+        with BioReader(self.__files[source_index]) as source_reader:
+            metadata = source_reader.metadata
+            num_tiles = utils.count_tiles_2d(source_reader)
+            tile_indices = list(utils.tile_indices_2d(source_reader))
 
             with BioWriter(output_dir.joinpath(image_name), metadata=metadata) as writer:
 
                 logger.info(f'Writing components for {image_name}...')
                 for i, (z, y_min, y_max, x_min, x_max) in enumerate(tile_indices):
-                    tile = numpy.squeeze(reader[y_min:y_max, x_min:x_max, z:z + 1, 0, 0])
+                    tile = numpy.squeeze(source_reader[y_min:y_max, x_min:x_max, z:z + 1, 0, 0])
 
                     original_component = numpy.zeros_like(tile)
 
                     if i % 10 == 0:
                         logger.info(f'Writing {image_name}: Progress {100 * i / num_tiles:6.2f} %')
 
-                    for neighbor_reader, original_c, mins, maxs in zip(
-                            readers, coefficients, neighbor_mins, neighbor_maxs
-                    ):
-                        neighbor_tile = numpy.squeeze(
-                            neighbor_reader[y_min:y_max, x_min:x_max, z:z + 1, 0, 0]
-                        ).astype(numpy.float32)
-                        neighbor_tile = (neighbor_tile - mins) / (maxs - mins)
+                    all_kernel_indices = numpy.asarray(self._get_kernel_indices(source_index), dtype=numpy.uint64)
+                    for neighbor_index, (neighbor_reader, min_val, max_val) in enumerate(zip(
+                            neighbor_readers, neighbor_mins, neighbor_maxs
+                    )):
+                        neighbor_tile = utils.normalize_tile(
+                            tile=numpy.squeeze(neighbor_reader[y_min:y_max, x_min:x_max, z:z + 1, 0, 0]),
+                            min_val=min_val,
+                            max_val=max_val,
+                        )
 
-                        if original_c != 0:
+                        kernel_size = self.__kernel_size ** 2
+                        kernel_indices = all_kernel_indices[
+                            kernel_size * neighbor_index:
+                            kernel_size * (1 + neighbor_index)
+                        ]
+                        kernel = coefficients[kernel_indices]
+                        kernel = numpy.reshape(kernel, newshape=(self.__kernel_size, self.__kernel_size))
+                        if numpy.any(kernel > 0):
                             # apply the coefficient
-                            current_component = original_c * neighbor_tile
-                            current_component[current_component < 0] = 0
+                            current_component = scipy.ndimage.convolve(neighbor_tile, kernel)
 
                             # Rescale, but do not add in the minimum value offset.
-                            current_component *= (maxs - mins)
+                            current_component *= (max_val - min_val)
                             original_component += current_component.astype(tile.dtype)
 
                     writer[y_min:y_max, x_min:x_max, z:z + 1, 0, 0] = original_component
 
-        [reader.close() for reader in readers]
+        [reader.close() for reader in neighbor_readers]
         return
 
 

@@ -1,6 +1,6 @@
 # Bleed-Through Estimation
 
-This WIPP plugin estimates the bleed-through in a collection of images.
+This WIPP plugin estimates the bleed-through in a collection of 2d images.
 The process is described in detail in [this paper](https://doi.org/10.1038/s41467-021-21735-x) and is implemented in [this repo](https://github.com/RoysamLab/whole_brain_analysis).
 
 The `filePattern` and `groupBy` parameters can be used to group images into subsets.
