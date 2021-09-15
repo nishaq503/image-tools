@@ -145,7 +145,7 @@ class Model(abc.ABC):
                 source_tile = utils.normalize_tile(source_tile, mins[0], maxs[0])
 
                 if source_tile.size > self.__num_pixels:
-                    indices = numpy.random.choice(source_tile.size, size=self.__num_pixels, replace=False)
+                    indices = numpy.argsort(source_tile)[:self.__num_pixels]
                 else:
                     indices = numpy.arange(0, source_tile.size)
 
