@@ -132,6 +132,14 @@ if __name__ == '__main__':
         required=False,
         default='true',
     )
+    
+    _parser.add_argument(
+        '--kernelSize',
+        dest='kernelSize',
+        type=int,
+        help='Whether to compute and write the bleed-through component for each image. '
+             'A component can be subtracted from the corresponding image to remove bleed-through.',
+    )
 
     _parser.add_argument(
         '--outDir',
@@ -174,6 +182,9 @@ if __name__ == '__main__':
 
     _channel_overlap = _args.channelOverlap
     logger.info(f'channelOverlap = {_channel_overlap}')
+    
+    _kernel_size = _args.kernelSize
+    logger.info(f'kernelSize = {_kernel_size}')
 
     _compute_components = _args.computeComponents
     if _compute_components not in ('true', 'false'):
@@ -205,4 +216,5 @@ if __name__ == '__main__':
             channel_overlap=_channel_overlap,
             output_dir=_output_dir if _compute_components else None,
             metadata_dir=_metadata_dir,
+            kernel_size=_kernel_size
         )
