@@ -187,7 +187,6 @@ class Model(abc.ABC):
                 interactions: numpy.ndarray = numpy.sqrt(numpy.expand_dims(source, axis=1) * neighbors)
                 neighbors = numpy.concatenate([neighbors, interactions], axis=1)
 
-                logger.info(f'num_pixels: {indices.shape}')
                 model.fit(neighbors, source)
 
             coefficients = list(map(float, model.coef_))[:len(neighbor_readers) * (self.__kernel_size ** 2)]

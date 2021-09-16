@@ -215,6 +215,5 @@ if __name__ == '__main__':
             model_name=_model_name,
             channel_overlap=_channel_overlap,
             output_dir=_output_dir if _compute_components else None,
-            metadata_dir=_metadata_dir,
-            kernel_size=_kernel_size
+            metadata_dir=_metadata_dir
         )
