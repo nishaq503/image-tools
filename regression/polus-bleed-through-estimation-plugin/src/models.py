@@ -64,7 +64,7 @@ class Model(abc.ABC):
         pad = 2 * (kernel_size // 2)
         self.__num_pixels = min(
             utils.MAX_DATA_SIZE // (4 * (kernel_size ** 2) * self.__channel_overlap * 2),
-            (utils.TILE_SIZE_2D - pad) ** 2,
+            utils.MIN_DATA_SIZE,
         )
 
         self.__coefficients = self._fit(selected_tiles)
@@ -133,26 +133,43 @@ class Model(abc.ABC):
                     f'Fitting {self.__class__.__name__} {source_index}: '
                     f'Progress: {100 * i / len(selected_tiles):6.2f} %'
                 )
-
-                pad = self.__kernel_size // 2
-                source_tile: numpy.ndarray = numpy.squeeze(
+                numpy.random.seed(i)
+                
+                images = [                    
                     source_reader[
-                        y_min + pad:y_max - pad,
-                        x_min + pad:x_max - pad,
+                        y_min:y_max,
+                        x_min:x_max,
                         0, 0, 0
                     ]
-                ).flatten()
-                source_tile = utils.normalize_tile(source_tile, mins[0], maxs[0])
+                ]
+                images.extend([
+                    reader[
+                        y_min:y_max,
+                        x_min:x_max,
+                        0, 0, 0
+                    ] for reader in neighbor_readers
+                ])
+
+                pad = self.__kernel_size // 2
+                source_tile = utils.normalize_tile(images[0][pad:-pad,pad:-pad].flatten(), mins[0], maxs[0])
 
                 if source_tile.size > self.__num_pixels:
-                    indices = numpy.argsort(source_tile)[:self.__num_pixels]
+                    temp_indices = [numpy.argsort(source_tile)[-self.__num_pixels:]]
+                    
+                    for image in images:
+                        image = image[pad:-pad,pad:-pad].flatten()
+                        temp_indices.append(numpy.argsort(image)[-self.__num_pixels:])
+                        
+                    indices = numpy.asarray(temp_indices)
+                    indices = numpy.unique(indices)
+                    indices = numpy.random.permutation(indices)[-self.__num_pixels:]
+                        
                 else:
                     indices = numpy.arange(0, source_tile.size)
 
                 tiles: list[numpy.ndarray] = [source_tile[indices]]
 
-                for reader, min_val, max_val in zip(neighbor_readers, mins[1:], maxs[1:]):
-                    tile = reader[y_min:y_max, x_min:x_max, 0, 0, 0]
+                for tile, min_val, max_val in zip(images[1:], mins[1:], maxs[1:]):
                     tile = utils.normalize_tile(tile, min_val, max_val)
 
                     for r in range(self.__kernel_size):
@@ -170,9 +187,8 @@ class Model(abc.ABC):
                 interactions: numpy.ndarray = numpy.sqrt(numpy.expand_dims(source, axis=1) * neighbors)
                 neighbors = numpy.concatenate([neighbors, interactions], axis=1)
 
-                logger.info('start fit...')
+                logger.info(f'num_pixels: {indices.shape}')
                 model.fit(neighbors, source)
-                logger.info('end fit...')
 
             coefficients = list(map(float, model.coef_))[:len(neighbor_readers) * (self.__kernel_size ** 2)]
             del model
@@ -189,10 +205,6 @@ class Model(abc.ABC):
                 for source_index in range(len(self.__files))
             ]
             coefficients_list: list[list[float]] = [future.result() for future in coefficients_list]
-        # coefficients_list: list[list[float]] = [
-        #     self._fit_thread(source_index, selected_tiles)
-        #     for source_index in range(len(self.__files))
-        # ]
 
         # TODO: Fix the rest...
         coefficients_matrix = numpy.zeros(
@@ -253,11 +265,6 @@ class Model(abc.ABC):
             processes = list()
             for source_index, input_path in enumerate(self.__files):
                 writer_name = utils.replace_extension(input_path.name)
-                self._write_components_thread(
-                    destination_dir,
-                    writer_name,
-                    source_index,
-                )
                 processes.append(executor.submit(
                     self._write_components_thread,
                     destination_dir,
@@ -267,13 +274,7 @@ class Model(abc.ABC):
 
             for process in processes:
                 process.result()
-        # for source_index, input_path in enumerate(self.__files):
-        #     writer_name = utils.replace_extension(input_path.name)
-        #     self._write_components_thread(
-        #         destination_dir,
-        #         writer_name,
-        #         source_index,
-        #     )
+
         return
 
     def _write_components_thread(
