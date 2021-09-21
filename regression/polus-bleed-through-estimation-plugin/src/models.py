@@ -342,9 +342,10 @@ class Model(abc.ABC):
                         ]
                         kernel = coefficients[kernel_indices]
                         kernel = numpy.reshape(kernel, newshape=(self.__kernel_size, self.__kernel_size))
+                        
                         if numpy.any(kernel > 0):
                             # apply the coefficient
-                            current_component = scipy.ndimage.convolve(neighbor_tile, kernel)
+                            current_component = scipy.ndimage.correlate(neighbor_tile, kernel)
 
                             # Rescale, but do not add in the minimum value offset.
                             current_component *= (max_val - min_val)
