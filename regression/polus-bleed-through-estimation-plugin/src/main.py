@@ -1,7 +1,8 @@
 import argparse
 import logging
+from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import as_completed
 from pathlib import Path
-from typing import Optional
 
 from filepattern import FilePattern
 
@@ -24,7 +25,8 @@ def estimate_bleed_through(
         selector_name: str,
         model_name: str,
         channel_overlap: int,
-        output_dir: Optional[Path],
+        kernel_size: int,
+        output_dir: Path,
         metadata_dir: Path,
 ):
     """ Estimates the bleed-through across adjacent channels among a group of files.
@@ -35,6 +37,7 @@ def estimate_bleed_through(
         selector_name: The method to use for selecting tiles. See `tile_selectors.py`
         model_name: The model to train for estimating bleed-through coefficients. See `models.py`
         channel_overlap: The number of adjacent channels that could cause bleed-through.
+        kernel_size: Size of convolutional kernel to use for bleed through.
         output_dir: If a Path is passed, bleed-through components will be saved in this directory.
         metadata_dir: The bleed-through coefficients for each round will be saved in this directory.
     """
@@ -50,15 +53,14 @@ def estimate_bleed_through(
         image_mins=selector.image_mins,
         image_maxs=selector.image_maxs,
         channel_overlap=channel_overlap,
-        kernel_size=3,  # TODO: Add as input param. enum 1, 3, 5
+        kernel_size=kernel_size,
     )
 
     logger.info('exporting coefficients...')
     model.coefficients_to_csv(metadata_dir, pattern, group)
 
-    if output_dir is not None:
-        logger.info('writing bleed-through components...')
-        model.write_components(output_dir)
+    logger.info('writing bleed-through components...')
+    model.write_components(output_dir)
 
     return
 
@@ -72,137 +74,121 @@ if __name__ == '__main__':
 
     """ Define the arguments """
     _parser.add_argument(
-        '--inpDir',
-        dest='inpDir',
-        type=str,
+        '--inpDir', dest='inpDir', type=str, required=True,
         help='Path to input images.',
-        required=True,
     )
 
     _parser.add_argument(
-        '--filePattern',
-        dest='filePattern',
-        type=str,
+        '--filePattern', dest='filePattern', type=str, required=True,
         help='Input file name pattern.',
-        required=True,
     )
 
     _parser.add_argument(
-        '--groupBy',
-        dest='groupBy',
-        type=str,
+        '--groupBy', dest='groupBy', type=str, required=True,
         help='Which variables to use when grouping images. '
              'Each group should contain all tiles and all channels in one round of imaging.',
-        required=True,
     )
 
     _parser.add_argument(
-        '--tileSelectionCriterion',
-        dest='tileSelectionCriterion',
-        type=str,
+        '--selectionCriterion', dest='selectionCriterion', type=str, required=False, default='HighMeanIntensity',
         help='What method to use for selecting tiles. These tiles will be used to estimate bleed-through.',
-        required=False,
-        default='HighMeanIntensity',
     )
 
     _parser.add_argument(
-        '--model',
-        dest='model',
-        type=str,
+        '--model', dest='model', type=str, required=False, default='Lasso',
         help='Which model to train for estimating bleed-through.',
-        required=False,
-        default='Lasso',
     )
 
     _parser.add_argument(
-        '--channelOverlap',
-        dest='channelOverlap',
-        type=int,
+        '--channelOverlap', dest='channelOverlap', type=int, required=False, default=1,
         help='Number of adjacent channels to consider for estimating bleed-through.',
-        required=False,
-        default=1,
     )
 
     _parser.add_argument(
-        '--computeComponents',
-        dest='computeComponents',
-        type=str,
-        help='Whether to compute and write the bleed-through component for each image. '
-             'A component can be subtracted from the corresponding image to remove bleed-through.',
-        required=False,
-        default='true',
+        '--kernelSize', dest='kernelSize', type=str, required=False, default='3x3',
+        help='Size of convolutional kernel to learn.',
     )
 
     _parser.add_argument(
-        '--outDir',
-        dest='outDir',
-        type=str,
-        help='Output directory for the processed images and metadata.',
-        required=True,
+        '--outDir', dest='outDir', type=str, required=True,
+        help='Output directory for the bleed-through components.',
+    )
+
+    _parser.add_argument(
+        '--csvDir', dest='csvDir', type=str, required=True,
+        help='Output directory for the coefficients of the learned kernels.',
     )
 
     _args = _parser.parse_args()
+    _error_messages = list()
 
     _input_dir = Path(_args.inpDir).resolve()
+    assert _input_dir.exists()
     if _input_dir.joinpath('images').is_dir():
         _input_dir = _input_dir.joinpath('images')
-    logger.info(f'inpDir = {_input_dir}')
 
     _pattern = _args.filePattern
-    logger.info(f'filePattern = {_pattern}')
 
     _group_by = _args.groupBy
     if 'c' not in _group_by:
-        _message = f'Grouping Variables must contain \'c\'. Got {_group_by} instead.'
-        logger.error(_message)
-        raise ValueError(_message)
-    logger.info(f'groupBy = {_group_by}')
+        _error_messages.append(f'Grouping Variables must contain \'c\'. Got {_group_by} instead.')
 
-    _selector_name = _args.tileSelectionCriterion
+    _selector_name = _args.selectionCriterion
     if _selector_name not in SELECTORS.keys():
-        _message = f'--tileSelectionCriterion {_selector_name} not found. Must be one of {list(SELECTORS.keys())}.'
-        logger.error(_message)
-        raise ValueError(_message)
-    logger.info(f'tileSelectionCriterion = {_selector_name}')
+        _error_messages.append(f'--tileSelectionCriterion {_selector_name} not found. '
+                               f'Must be one of {list(SELECTORS.keys())}.')
 
     _model_name = _args.model
     if _model_name not in MODELS.keys():
-        _message = f'--model {_model_name} not found. Must be one of {list(MODELS.keys())}.'
-        logger.error(_message)
-        raise ValueError(_message)
-    logger.info(f'model = {_model_name}')
+        _error_messages.append(f'--model {_model_name} not found. Must be one of {list(MODELS.keys())}.')
 
     _channel_overlap = _args.channelOverlap
-    logger.info(f'channelOverlap = {_channel_overlap}')
 
-    _compute_components = _args.computeComponents
-    if _compute_components not in ('true', 'false'):
-        _message = (
-            f'The value {_compute_components} for --computeComponents is not valid. '
-            f'Must be either \'true\' or \'false\'.'
-        )
-        logger.error(_message)
-        raise ValueError(_message)
-    _compute_components = (_compute_components == 'true')
-    logger.info(f'computeComponents = {_compute_components}')
+    _kernel_size = _args.kernelSize
+    if _kernel_size not in ('1x1', '3x3', '5x5'):
+        _error_messages.append(f'--kernelSize must be one of \'1x1\', \'3x3\', \'5x5\'. '
+                               f'Got {_kernel_size} instead.')
+    _kernel_size = int(_kernel_size.split('x')[0])
 
     _output_dir = Path(_args.outDir).resolve()
-    _metadata_dir = _output_dir.joinpath('metadata')
-    _metadata_dir.mkdir(parents=False, exist_ok=True)
-    _output_dir = _output_dir.joinpath('images')
-    _output_dir.mkdir(parents=False, exist_ok=True)
+    assert _output_dir.exists()
+    _csv_dir = Path(_args.csvDir).resolve()
+    assert _csv_dir.exists()
 
+    if len(_error_messages) > 0:
+        _message = '\n'.join((
+            'Oh no! Something went wrong:',
+            *_error_messages,
+            'See the README for more details.',
+        ))
+        logger.error(_message)
+        raise ValueError(_message)
+
+    logger.info(f'inpDir = {_input_dir}')
+    logger.info(f'filePattern = {_pattern}')
+    logger.info(f'groupBy = {_group_by}')
+    logger.info(f'selectionCriterion = {_selector_name}')
+    logger.info(f'model = {_model_name}')
+    logger.info(f'channelOverlap = {_channel_overlap}')
+    logger.info(f'kernelSize = {_kernel_size}x{_kernel_size}')
     logger.info(f'outDir = {_output_dir}')
-    logger.info(f'metadataDir = {_metadata_dir}')
+    logger.info(f'csvDir = {_csv_dir}')
 
     _fp = FilePattern(_input_dir, _pattern)
-    for _group in _fp(list(_group_by)):
-        estimate_bleed_through(
-            group=_group,
-            pattern=_pattern,
-            selector_name=_selector_name,
-            model_name=_model_name,
-            channel_overlap=_channel_overlap,
-            output_dir=_output_dir if _compute_components else None,
-            metadata_dir=_metadata_dir,
-        )
+    _kwargs = dict(
+        pattern=_pattern,
+        selector_name=_selector_name,
+        model_name=_model_name,
+        channel_overlap=_channel_overlap,
+        kernel_size=_kernel_size,
+        output_dir=_output_dir,
+        metadata_dir=_csv_dir,
+    )
+    with ProcessPoolExecutor(max_workers=utils.NUM_THREADS) as _executor:
+        _processes = list()
+        for _group in _fp(list(_group_by)):
+            _kwargs['group'] = _group
+            _processes.append(_executor.submit(estimate_bleed_through, **_kwargs))
+
+        for _process in as_completed(_processes):
+            _process.result()

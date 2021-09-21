@@ -1,5 +1,6 @@
 import logging
 import os
+from multiprocessing import cpu_count
 from pathlib import Path
 from typing import Generator
 from typing import Union
@@ -11,9 +12,10 @@ from bfio import BioWriter
 POLUS_LOG = getattr(logging, os.environ.get('POLUS_LOG', 'INFO'))
 POLUS_EXT = os.environ.get('POLUS_EXT', '.ome.tif')
 
-# NUM_THREADS = max(1, int(cpu_count() * 0.5))  # TODO: What's the point?
+NUM_THREADS = max(1, int(cpu_count() * 0.75))
 TILE_SIZE_2D = 1024 * 2
 TILE_SIZE_3D = 128
+MIN_DATA_SIZE = 2 ** 19  # Load at least this much data
 MAX_DATA_SIZE = 2 ** 31  # Limit to loading 500MB of pixels
 EPSILON = 1e-8  # To avoid divide-by-zero errors
 

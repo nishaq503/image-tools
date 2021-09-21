@@ -15,8 +15,8 @@ RUN pip3 install -r requirements.txt --no-cache-dir && \
     mkdir -p ${DATA_DIR}/{inputs, outputs} && \
     mkdir -p ${EXEC_DIR}/{bleed_through_estimation, utils}
 
-COPY src ${EXEC_DIR}/
 COPY VERSION /
+COPY src ${EXEC_DIR}/
 
 WORKDIR ${EXEC_DIR}
 

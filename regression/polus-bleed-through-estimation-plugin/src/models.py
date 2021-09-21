@@ -61,10 +61,9 @@ class Model(abc.ABC):
         self.__channel_overlap = min(len(self.__files) - 1, max(1, channel_overlap))
         self.__kernel_size = kernel_size
 
-        pad = 2 * (kernel_size // 2)
-        self.__num_pixels = min(
+        self.__num_pixels = max(
             utils.MAX_DATA_SIZE // (4 * (kernel_size ** 2) * self.__channel_overlap * 2),
-            (utils.TILE_SIZE_2D - pad) ** 2,
+            utils.MIN_DATA_SIZE,
         )
 
         self.__coefficients = self._fit(selected_tiles)
@@ -102,6 +101,11 @@ class Model(abc.ABC):
             for j in range(kernel_size)
         ]
 
+    def _select_pixels(self, tile: numpy.ndarray) -> numpy.ndarray:
+        """ Returns the indices of the brightest few pixels from the given tile.
+        """
+        return numpy.argsort(tile)[-self.__num_pixels:]
+
     def _fit_thread(self, source_index: int, selected_tiles: utils.TileIndices) -> list[float]:
         """ Trains a single model on a single source-channel and
          returns the mixing coefficients with the adjacent channels.
@@ -115,9 +119,9 @@ class Model(abc.ABC):
             A list of the mixing coefficient with each neighboring channel
              within self.__channel_overlap of the source channel.
         """
-        with BioReader(self.__files[source_index]) as source_reader:
+        with BioReader(self.__files[source_index], max_workers=utils.NUM_THREADS) as source_reader:
             neighbor_readers = [
-                BioReader(self.__files[i])
+                BioReader(self.__files[i], max_workers=utils.NUM_THREADS)
                 for i in self._get_neighbors(source_index)
             ]
 
@@ -133,26 +137,33 @@ class Model(abc.ABC):
                     f'Fitting {self.__class__.__name__} {source_index}: '
                     f'Progress: {100 * i / len(selected_tiles):6.2f} %'
                 )
+                numpy.random.seed(i)
+
+                images: list[numpy.ndarray] = [source_reader[y_min:y_max, x_min:x_max, 0, 0, 0]]
+                images.extend((
+                    reader[y_min:y_max, x_min:x_max, 0, 0, 0]
+                    for reader in neighbor_readers
+                ))
 
                 pad = self.__kernel_size // 2
-                source_tile: numpy.ndarray = numpy.squeeze(
-                    source_reader[
-                        y_min + pad:y_max - pad,
-                        x_min + pad:x_max - pad,
-                        0, 0, 0
-                    ]
-                ).flatten()
-                source_tile = utils.normalize_tile(source_tile, mins[0], maxs[0])
+                source_tile = utils.normalize_tile(images[0][pad:-pad, pad:-pad], mins[0], maxs[0]).flatten()
 
                 if source_tile.size > self.__num_pixels:
-                    indices = numpy.argsort(source_tile)[:self.__num_pixels]
+                    temp_indices = self._select_pixels(source_tile)
+
+                    for image in images:
+                        temp_indices = numpy.concatenate(arrays=(
+                            temp_indices,
+                            self._select_pixels(image[pad:-pad, pad:-pad].flatten())
+                        ))
+
+                    indices: numpy.ndarray = numpy.random.permutation(numpy.unique(indices))[-self.__num_pixels:]
                 else:
                     indices = numpy.arange(0, source_tile.size)
 
                 tiles: list[numpy.ndarray] = [source_tile[indices]]
 
-                for reader, min_val, max_val in zip(neighbor_readers, mins[1:], maxs[1:]):
-                    tile = reader[y_min:y_max, x_min:x_max, 0, 0, 0]
+                for tile, min_val, max_val in zip(images[1:], mins[1:], maxs[1:]):
                     tile = utils.normalize_tile(tile, min_val, max_val)
 
                     for r in range(self.__kernel_size):
@@ -170,11 +181,10 @@ class Model(abc.ABC):
                 interactions: numpy.ndarray = numpy.sqrt(numpy.expand_dims(source, axis=1) * neighbors)
                 neighbors = numpy.concatenate([neighbors, interactions], axis=1)
 
-                logger.info('start fit...')
                 model.fit(neighbors, source)
-                logger.info('end fit...')
 
-            coefficients = list(map(float, model.coef_))[:len(neighbor_readers) * (self.__kernel_size ** 2)]
+            # coefficients = list(map(float, model.coef_))[:len(neighbor_readers) * (self.__kernel_size ** 2)]
+            coefficients = list(map(float, model.coef_))
             del model
             [reader.close() for reader in neighbor_readers]
 
@@ -183,25 +193,25 @@ class Model(abc.ABC):
     def _fit(self, selected_tiles: utils.TileIndices) -> numpy.ndarray:
         """ Fits the model on the images and returns a matrix of mixing coefficients. """
 
-        with ProcessPoolExecutor() as executor:
+        with ProcessPoolExecutor(max_workers=utils.NUM_THREADS) as executor:
             coefficients_list: list[Future[list[float]]] = [
                 executor.submit(self._fit_thread, source_index, selected_tiles)
                 for source_index in range(len(self.__files))
             ]
             coefficients_list: list[list[float]] = [future.result() for future in coefficients_list]
-        # coefficients_list: list[list[float]] = [
-        #     self._fit_thread(source_index, selected_tiles)
-        #     for source_index in range(len(self.__files))
-        # ]
 
-        # TODO: Fix the rest...
         coefficients_matrix = numpy.zeros(
-            shape=(len(self.__files), len(self.__files) * (self.__kernel_size ** 2)),
+            shape=(len(self.__files), 2 * len(self.__files) * (self.__kernel_size ** 2)),
             dtype=numpy.float32,
         )
         for i, coefficients in enumerate(coefficients_list):
             kernel_indices = self._get_kernel_indices(i)
-            coefficients_matrix[i, kernel_indices] = coefficients
+
+            interaction_offset = len(self.__files) * (self.__kernel_size ** 2)
+            interaction_indices = [interaction_offset + j for j in kernel_indices]
+            indices = kernel_indices + interaction_indices
+
+            coefficients_matrix[i, indices] = coefficients
 
         return coefficients_matrix
 
@@ -227,12 +237,17 @@ class Model(abc.ABC):
 
         metadata_path = destination_dir.joinpath(f'{name}_coefficients.csv')
         with open(metadata_path, 'w') as outfile:
-            header = ','.join(
+            header_1 = ','.join(
                 f'c{c}k{k}'
                 for c in range(len(self.__files))
                 for k in range(self.__kernel_size ** 2)
             )
-            outfile.write(f'channel,{header}\n')
+            header_2 = ','.join(
+                f'i{c}k{k}'
+                for c in range(len(self.__files))
+                for k in range(self.__kernel_size ** 2)
+            )
+            outfile.write(f'channel,{header_1},{header_2}\n')
 
             for channel, row in enumerate(self.coefficients):
                 row = ','.join(f'{c:.6e}' for c in row)
@@ -249,15 +264,10 @@ class Model(abc.ABC):
             destination_dir: Path to the directory where the output images will
                               be written.
         """
-        with ProcessPoolExecutor() as executor:
+        with ProcessPoolExecutor(max_workers=utils.NUM_THREADS) as executor:
             processes = list()
             for source_index, input_path in enumerate(self.__files):
                 writer_name = utils.replace_extension(input_path.name)
-                self._write_components_thread(
-                    destination_dir,
-                    writer_name,
-                    source_index,
-                )
                 processes.append(executor.submit(
                     self._write_components_thread,
                     destination_dir,
@@ -267,13 +277,6 @@ class Model(abc.ABC):
 
             for process in processes:
                 process.result()
-        # for source_index, input_path in enumerate(self.__files):
-        #     writer_name = utils.replace_extension(input_path.name)
-        #     self._write_components_thread(
-        #         destination_dir,
-        #         writer_name,
-        #         source_index,
-        #     )
         return
 
     def _write_components_thread(
@@ -297,14 +300,21 @@ class Model(abc.ABC):
 
         coefficients = self.__coefficients[source_index]
 
-        neighbor_readers = [BioReader(self.__files[i]) for i in neighbor_indices]
+        neighbor_readers = [
+            BioReader(self.__files[i], max_workers=utils.NUM_THREADS)
+            for i in neighbor_indices
+        ]
 
-        with BioReader(self.__files[source_index]) as source_reader:
+        with BioReader(self.__files[source_index], max_workers=utils.NUM_THREADS) as source_reader:
             metadata = source_reader.metadata
             num_tiles = utils.count_tiles_2d(source_reader)
             tile_indices = list(utils.tile_indices_2d(source_reader))
 
-            with BioWriter(output_dir.joinpath(image_name), metadata=metadata) as writer:
+            with BioWriter(
+                    output_dir.joinpath(image_name),
+                    metadata=metadata,
+                    max_workers=utils.NUM_THREADS,
+            ) as writer:
 
                 logger.info(f'Writing components for {image_name}...')
                 for i, (z, y_min, y_max, x_min, x_max) in enumerate(tile_indices):

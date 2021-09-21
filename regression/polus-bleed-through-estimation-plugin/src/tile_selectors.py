@@ -49,7 +49,7 @@ class Selector(abc.ABC):
         self.__image_maxs = list()
         self.__scores: list[utils.ScoresDict] = list()
 
-        with ProcessPoolExecutor() as executor:
+        with ProcessPoolExecutor(max_workers=utils.NUM_THREADS) as executor:
             futures: list[Future[tuple[utils.ScoresDict, int, int]]] = [
                 executor.submit(self._score_tiles_thread, file_path)
                 for file_path in self.__files
@@ -65,14 +65,6 @@ class Selector(abc.ABC):
     @property
     def selected_tiles(self) -> utils.TileIndices:
         return self.__selected_tiles
-    
-    @property
-    def image_mins(self) -> list:
-        return self.__min
-    
-    @property
-    def image_maxs(self) -> list:
-        return self.__max
 
     @property
     def image_mins(self) -> list[int]:
@@ -95,7 +87,7 @@ class Selector(abc.ABC):
         Returns:
             A Dictionary of tile-scores. See `utils/types.py`
         """
-        with BioReader(file_path) as reader:
+        with BioReader(file_path, max_workers=utils.NUM_THREADS) as reader:
 
             scores_dict: utils.ScoresDict = dict()
             logger.info(f'Ranking tiles in {file_path.name}...')
@@ -140,7 +132,6 @@ class Selector(abc.ABC):
 class HighEntropy(Selector):
     """ Select tiles with the highest entropy. """
     def _score_tile(self, tile: numpy.ndarray) -> float:
-        # TODO: Test if results change much if the tile is converted using something like skimage.img_to_uint
         counts, _ = numpy.histogram(tile.flat, bins=128, density=True)
         return float(scipy.stats.entropy(counts))
 

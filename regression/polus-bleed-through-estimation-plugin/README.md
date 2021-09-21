@@ -36,7 +36,7 @@ You can also use `'x'`, `'y'`, `'z'` and/or `'p'` to further subgroup tiles if t
 
 TODO: More testing around proper grouping of images by positional variables...
 
-### --tileSelectionCriterion
+### --selectionCriterion
 
 Which method to use to rank and select tiles in images.
 The available options are:
@@ -50,8 +50,6 @@ The available options are:
 We rank-order all tiles based on one of these criteria and then select the 10 best tiles from each channel.
 A tiles chosen for any channel is used for all channels.
 
-TODO: Add more...
-
 ### --model
 
 Which model (from `sklearn.linear_model`) to train for estimating bleed-through.
@@ -63,12 +61,6 @@ The available options are:
 
 For each channel, we train a separate instance of this model (on the selected tiles) using adjacent channels to estimate bleed-through.
 
-TODO: Add more...
-
-TODO: ICA is probably the correct model for this task.
-However, I know of no way to train ICA with batches of data (with each set of tiles making a single batch).
-We could probably run ICA if we had a small enough number of tiles but the memory-scaling of ICA generally makes it unsuitable for big-data applications. 
-
 ### --channelOverlap
 
 The number of adjacent channels to consider for estimating bleed-through.
@@ -77,12 +69,35 @@ We assume that the channels in the input images are numbered `0, 1, 2, ... num_c
 We use a default value of `1`.
 Higher values will look for bleed-through from farther channels but will cause the models to take longer to train.
 
-### --computeComponents
+### --kernelSize
 
-Whether to compute and write the bleed-through component for each image.
-These components can be directly subtracted from the source images to correct for bleed-through.
+We learn a convolutional kernel for estimating the bleed-through from each channel to each neighboring channel.
+This parameter specifies the size of those kernels.
+It must be one of "1x1", "3x3" or "5x5".
 
-TODO: Some mixing coefficients from the models are large and could produce negative pixel-values after subtraction. Investigate and fix...
+Note that the time to train models scales with `kernelSize`.
+Training with a "3x3" kernel takes 9 times as long as with a "1x1" kernel but also gives the best results.
+Training with a "5x5" kernel takes 25 times as long as with a "1x1" kernel but, during testing, this produced 3x3 kernels with zero-padding around it.
+We recommend "3x3" as the default.
+
+## TODOs:
+
+**1.**
+There are some performance improvements to be made in how we select tiles and pixels to be trained.
+We load tiles and sort pixels three times.
+This can be cut down to loading tiles twice and sorting pixels only once.
+
+**2.**
+Since we are learning convolutional kernels here, we can re-frame the problem to use AutoEncoders or CNNs.
+If successful, we can use deep-learning frameworks to greatly speed up the training process.
+
+**3.**
+ICA is an excellent candidate for this task.
+However, I know of no way to train ICA with batches of data (with each set of tiles/pixels making a single batch).
+We could probably run ICA if we had a small enough number of tiles/pixels but the memory-scaling of ICA generally makes it unsuitable for big-data applications.
+
+**4.**
+Test and add more options for selection criteria.
 
 ## Build the plugin
 
@@ -97,13 +112,14 @@ Paste the contents of `plugin.json` into the pop-up window and submit.
 
 This plugin takes 3 input arguments and 1 output argument:
 
-| Name            | Description                                   | I/O    | Type    | Default |
-|-----------------|-----------------------------------------------|--------|---------|---------|
-| `--inpDir`      | Path to input images.                         | Input  | String  | N/A |
-| `--filePattern` | File pattern to subset images.                | Input  | String  | N/A |
-| `--groupBy`     | Variables to group together.                  | Input  | String  | N/A |
-| `--tileSelectionCriterion`  | Method to use for selecting tiles. | Input  | Enum  | HighMeanIntensity |
-| `--model`  | Model to train for estimating bleed-through. | Input  | Enum  | Lasso |
-| `--channelOverlap`  | Number of adjacent channels to consider. | Input  | Integer  | 1 |
-| `--computeComponents`  | Whether to compute and write the bleed-through component for each image. | Input  | Boolean  | true |
-| `--outDir`      | Output image collection,                      | Output | String  | N/A |
+| Name                   | Description                                          | I/O    | Type    | Default             |
+|------------------------|------------------------------------------------------|--------|---------|---------------------|
+| `--inpDir`             | Path to input images.                                | Input  | String  | N/A                 |
+| `--filePattern`        | File pattern to subset images.                       | Input  | String  | N/A                 |
+| `--groupBy`            | Variables to group together.                         | Input  | String  | N/A                 |
+| `--selectionCriterion` | Method to use for selecting tiles.                   | Input  | Enum    | "HighMeanIntensity" |
+| `--model`              | Model to train for estimating bleed-through.         | Input  | Enum    | "Lasso"             |
+| `--channelOverlap`     | Number of adjacent channels to consider.             | Input  | Integer | 1                   |
+| `--kernelSize`         | Size of convolutional kernels to learn.              | Input  | Enum    | "3x3"               |
+| `--outDir`             | Output image collection.                             | Output | String  | N/A                 |
+| `--csvDir`             | Location for storing the bleed-through coefficients. | Output | String  | N/A                 |

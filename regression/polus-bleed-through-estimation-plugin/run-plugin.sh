@@ -1,7 +1,7 @@
 #!/bin/bash
 
 version=$(<VERSION)
-data_path=$(readlink --canonicalize ../../data)
+data_path=$(readlink --canonicalize ../../data/bleed_through_estimation)
 
 # Must be one of ERROR, CRITICAL, WARNING, INFO, DEBUG
 POLUS_LOG=INFO
@@ -10,6 +10,7 @@ POLUS_LOG=INFO
 POLUS_EXT=".ome.tif"
 
 # Inputs
+<<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< Updated upstream
 <<<<<<< HEAD
@@ -35,6 +36,17 @@ outDir=/data/output
 echo $[data_path]
 
 docker run --mount type=bind,source=${data_path},target=/data/ \
+=======
+inpDir=/data/input
+filePattern="r{rrr}_c{ccc}_z{zzz}.ome.tif"
+groupBy="c"
+
+# Output paths
+outDir=/data/output/images
+csvDir=/data/output/csvs
+
+docker run --mount type=bind,source="${data_path}",target=/data/ \
+>>>>>>> a01778514354072ba01b9c5fe1ba756153d5a141
             --user "$(id -u)":"$(id -g)" \
             --env POLUS_LOG=${POLUS_LOG} \
             --env POLUS_EXT=${POLUS_EXT} \
@@ -42,4 +54,9 @@ docker run --mount type=bind,source=${data_path},target=/data/ \
             --inpDir ${inpDir} \
             --filePattern ${filePattern} \
             --groupBy ${groupBy} \
+<<<<<<< HEAD
             --outDir ${outDir}
+=======
+            --outDir ${outDir} \
+            --csvDir ${csvDir}
+>>>>>>> a01778514354072ba01b9c5fe1ba756153d5a141
