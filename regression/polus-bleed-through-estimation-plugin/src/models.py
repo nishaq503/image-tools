@@ -345,7 +345,10 @@ class Model(abc.ABC):
                         
                         if numpy.any(kernel > 0):
                             # apply the coefficient
-                            current_component = scipy.ndimage.correlate(neighbor_tile, kernel)
+                            current_component = scipy.ndimage.gaussian_filter(neighbor_tile, 0.67)
+                            
+                            # apply the coefficient
+                            current_component = scipy.ndimage.correlate(current_component, kernel)
 
                             # Rescale, but do not add in the minimum value offset.
                             current_component *= (max_val - min_val)
