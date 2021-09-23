@@ -5,6 +5,7 @@ from concurrent.futures import ProcessPoolExecutor
 from operator import itemgetter
 from pathlib import Path
 from typing import Type
+# from preadator import ThreadManager
 
 import numpy
 import scipy.stats
@@ -48,6 +49,12 @@ class Selector(abc.ABC):
         self.__image_mins = list()
         self.__image_maxs = list()
         self.__scores: list[utils.ScoresDict] = list()
+        
+        # for file_path in self.__files:
+            
+        #     ThreadManager.submit_process(self._score_tiles_thread, file_path)
+            
+        # ThreadManager.submit_process()
 
         with ProcessPoolExecutor(max_workers=utils.NUM_THREADS) as executor:
             futures: list[Future[tuple[utils.ScoresDict, int, int]]] = [

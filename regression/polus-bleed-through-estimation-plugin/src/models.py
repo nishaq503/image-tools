@@ -345,20 +345,26 @@ class Model(abc.ABC):
                         
                         if numpy.any(kernel > 0):
                             # apply the coefficient
-                            current_component = scipy.ndimage.gaussian_filter(neighbor_tile, 0.67)
+                            if self.__kernel_size > 1:
+                                smoothed_tile = scipy.ndimage.gaussian_filter(neighbor_tile, 2)
+                                smoothed_tile = numpy.min(numpy.dstack((smoothed_tile,neighbor_tile)),axis=-1)
+                            else:
+                                smoothed_tile = neighbor_tile
                             
                             # apply the coefficient
-                            current_component = scipy.ndimage.correlate(current_component, kernel)
+                            current_component = scipy.ndimage.correlate(smoothed_tile, kernel)
 
                             # Rescale, but do not add in the minimum value offset.
                             current_component *= (max_val - min_val)
                             original_component += current_component.astype(tile.dtype)
 
+                    # Make sure bleed-through is not higher than the original signal.
+                    original_component = numpy.min(numpy.dstack((tile,original_component)),axis=-1)
+
                     writer[y_min:y_max, x_min:x_max, z:z + 1, 0, 0] = original_component
 
         [reader.close() for reader in neighbor_readers]
         return
-
 
 class Lasso(Model):
     """ Uses sklearn.linear_model.Lasso
