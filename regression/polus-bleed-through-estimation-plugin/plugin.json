@@ -1,25 +1,14 @@
 {
   "name": "Bleed-Through Estimation Plugin",
-<<<<<<< HEAD
-  "version": "0.1.7",
-  "title": "BleedThroughEstimation",
-  "description": "Performs bleed-through estimation for images.",
-  "author": "Najib Ishaq (najib.ishaq@axleinfo.com)",
-=======
-  "version": "0.2.0",
+  "version": "0.3.0",
   "title": "BleedThroughEstimation",
   "description": "Performs bleed-through estimation for images.",
   "author": "Najib Ishaq (najib.ishaq@axleinfo.com), Nick Schaub (nick.schaub@nih.gov)",
->>>>>>> a01778514354072ba01b9c5fe1ba756153d5a141
   "institution": "National Center for the Advancing Translational Sciences, National Institutes of Health",
   "repository": "https://github.com/polusai/polus-plugins/tree/dev/regression",
   "website": "https://ncats.nih.gov/preclinical/core/informatics",
   "citation": "https://doi.org/10.1038/s41467-021-21735-x",
-<<<<<<< HEAD
-  "containerId": "polusai/bleed-through-estimation-plugin:0.1.7",
-=======
-  "containerId": "polusai/bleed-through-estimation-plugin:0.2.0",
->>>>>>> a01778514354072ba01b9c5fe1ba756153d5a141
+  "containerId": "polusai/bleed-through-estimation-plugin:0.3.0",
   "inputs": [
     {
       "name": "inpDir",
@@ -40,11 +29,7 @@
       "required": true
     },
     {
-<<<<<<< HEAD
-      "name": "tileSelectionCriterion",
-=======
       "name": "selectionCriterion",
->>>>>>> a01778514354072ba01b9c5fe1ba756153d5a141
       "type": "enum",
       "description": "Method to use for selecting tiles.",
       "options": {
@@ -77,11 +62,6 @@
       "required": false
     },
     {
-<<<<<<< HEAD
-      "name": "computeComponents",
-      "type": "boolean",
-      "description": "Whether to compute and write bleed-through components.",
-=======
       "name": "kernelSize",
       "type": "enum",
       "description": "Size of convolution kernels to learn.",
@@ -92,7 +72,6 @@
           "5x5"
         ]
       },
->>>>>>> a01778514354072ba01b9c5fe1ba756153d5a141
       "required": false
     }
   ],
@@ -100,16 +79,12 @@
     {
       "name": "outDir",
       "type": "collection",
-<<<<<<< HEAD
-      "description": "Output data for the plugin"
-=======
       "description": "Location for writing bleed-through components."
     },
     {
       "name": "csvDir",
       "type": "csvCollection",
       "description": "Location for writing convolutional kernel coefficients."
->>>>>>> a01778514354072ba01b9c5fe1ba756153d5a141
     }
   ],
   "ui": [
@@ -129,13 +104,8 @@
       "description": "Variables to group together."
     },
     {
-<<<<<<< HEAD
-      "key": "inputs.tileSelectionCriterion",
-      "title": "Tile Selection Criterion: ",
-=======
       "key": "inputs.selectionCriterion",
       "title": "Selection Criterion: ",
->>>>>>> a01778514354072ba01b9c5fe1ba756153d5a141
       "description": "Method to use for selecting tiles.",
       "default": "HighMeanIntensity"
     },
@@ -152,17 +122,10 @@
       "default": 1
     },
     {
-<<<<<<< HEAD
-      "key": "inputs.computeComponents",
-      "title": "Compute Components: ",
-      "description": "Whether to compute and write bleed-through components.",
-      "default": true
-=======
       "key": "inputs.kernelSize",
       "title": "Kernel Size: ",
       "description": "Size of convolutional kernels to learn.",
       "default": "3x3"
->>>>>>> a01778514354072ba01b9c5fe1ba756153d5a141
     }
   ]
 }
