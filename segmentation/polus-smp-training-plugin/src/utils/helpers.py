@@ -99,4 +99,3 @@ def get_device_memory(device: torch.device) -> int:
         free_memory = total_memory - reserved_memory
 
     return free_memory
-

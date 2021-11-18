@@ -41,9 +41,6 @@ if __name__ == "__main__":
                         help='Encoder variant to use.')
     parser.add_argument('--encoderWeights', dest='encoderWeights', type=str, required=False, default='imagenet',
                         help='Name of dataset with which the model was pretrained.')
-    # parser.add_argument('--encoderBaseVariantWeights', dest='encoderBaseVariantWeights', type=str, required=False,
-    #                     default='ResNet,resnet34,imagenet',
-    #                     help='The name of the encoder, the specific variant, and the pretrained weights to use.')
 
     parser.add_argument('--optimizerName', dest='optimizerName', type=str, required=False, default='Adam',
                         help='Name of optimization algorithm to use for training the model.')
@@ -88,8 +85,10 @@ if __name__ == "__main__":
     # Model Creation/Specification via checkpoint dictionary
     pretrained_model: Optional[Path] = args.pretrainedModel
     if pretrained_model is None:
-        encoder_base_variant_weights = args.encoderBaseVariantWeights
-        [encoder_base, encoder_variant, encoder_weights] = str(args.encoderBaseVariantWeights).split(',')
+
+        encoder_base = args.encoderBase
+        encoder_variant = args.encoderVariant
+        encoder_weights = args.encoderWeights
         if encoder_weights == 'random':
             encoder_weights = None
 

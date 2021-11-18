@@ -1,21 +1,25 @@
 import logging
 from pathlib import Path
+from typing import Any
 from typing import Dict
+from typing import Tuple
 from typing import Union
 
+import albumentations
 import numpy
 import torch
 import torchvision
+from albumentations.core.transforms_interface import BasicTransform
 from bfio import BioReader
 from torch import Tensor
 from torch.utils.data import Dataset as TorchDataset
-import albumentations as A
-from albumentations.core.transforms_interface import BasicTransform
 
 from . import helpers
 
 __all__ = [
     'Dataset',
+    'PoissonTransform',
+    'LocalNorm',
 ]
 
 logging.basicConfig(
@@ -83,8 +87,8 @@ class LocalNorm(object):
 
         return (response - local_mean) / local_std
 
-class Poisson_Transform(BasicTransform):
-    
+
+class PoissonTransform(BasicTransform):
     """ Apply poisson noise.
     Args:
         peak (int): [1-10] high values introduces more noise in the image
@@ -93,25 +97,34 @@ class Poisson_Transform(BasicTransform):
         image
     Image types:
         float32 """
-    
-    def __init__(self, peak, always_apply=False, p=0.5):        
-        super(Poisson_Transform, self).__init__(always_apply, p)      
-        self.peak = peak        
-    def apply(self,img, peak):  
+
+    def __init__(self, peak, always_apply=False, p=0.5):
+        super(PoissonTransform, self).__init__(always_apply, p)
+        self.peak = peak
+
+    def apply(self, img, **params):
+        peak = params.get('peak', 10)
         if peak > 10:
             raise ValueError('Peak values range is 1-10')
 
-        value = np.exp(10 - peak)
-        noisy_image = np.random.poisson(img * value ).astype(np.float32) / value       
+        value = numpy.exp(10 - peak)
+        noisy_image = numpy.random.poisson(img * value).astype(numpy.float32) / value
         return noisy_image
-    
+
     def update_params(self, params, **kwargs):
         if hasattr(self, "peak"):
             params["peak"] = self.peak
-        return params 
+        return params
+
     @property
     def targets(self):
         return {"image": self.apply}
+
+    def get_params_dependent_on_targets(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        raise NotImplementedError
+
+    def get_transform_init_args_names(self) -> Tuple[str, ...]:
+        raise NotImplementedError
 
 
 class Dataset(TorchDataset):
@@ -132,25 +145,31 @@ class Dataset(TorchDataset):
             image_tile = reader[y_min:y_max, x_min:x_max, 0, 0, 0]
         image_tile = numpy.asarray(image_tile, dtype=numpy.float32)
 
-               # read and preprocess label
+        # read and preprocess label
         with BioReader(label_path) as reader:
             label_tile = reader[y_min:y_max, x_min:x_max, 0, 0, 0]
         label_tile = numpy.asarray(label_tile, dtype=numpy.float32)
         # label_tile = numpy.reshape(label_tile, (1, y_max - y_min, x_max - x_min))
 
-        transform = A.Compose([A.RandomCrop(width=256, height=256), 
-                                A.GridDistortion(num_steps=5, distort_limit=0.3,p=0.1),
-                                A.RandomBrightnessContrast(brightness_limit=0.8, contrast_limit=0.4, p=0.2),
-                                Poisson_Transform(peak=10,p=0.3),   
-                                A.OneOf([A.MotionBlur(blur_limit=15, p=0.1),
-                                        A.Blur(blur_limit=15, p=0.1), 
-                                        A.MedianBlur(blur_limit=3, p=.1)]
-                                        , p=0.2)
-                                        
-                                ])
+        transform = albumentations.Compose(
+            [
+                albumentations.RandomCrop(width=256, height=256),
+                albumentations.GridDistortion(num_steps=5, distort_limit=0.3, p=0.1),
+                albumentations.RandomBrightnessContrast(brightness_limit=0.8, contrast_limit=0.4, p=0.2),
+                PoissonTransform(peak=10, p=0.3),
+                albumentations.OneOf(
+                    [
+                        albumentations.MotionBlur(blur_limit=15, p=0.1),
+                        albumentations.Blur(blur_limit=15, p=0.1),
+                        albumentations.MedianBlur(blur_limit=3, p=.1)
+                    ],
+                    p=0.2
+                ),
+            ]
+        )
 
         sample = transform(image=image_tile, mask=label_tile)
-        image_tile, label_tile = sample['image'], sample['mask']  
+        image_tile, label_tile = sample['image'], sample['mask']
 
         image_tile = self.preprocessing(image_tile).numpy()
 
