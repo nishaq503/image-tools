@@ -1,44 +1,47 @@
 #!/bin/bash
 
 version=$(<VERSION)
-data_path=$(readlink --canonicalize ../../data/smp_training)
+data_path=$(readlink --canonicalize ../../../data/smp-training)
 
 # Inputs
-pretrainedModel=/data/pretrained_model
+#pretrainedModel=/data/pretrained_model
 modelName="Linknet"
-encoderBaseVariantWeights="ResNet,resnet18,imagenet"
-#encoderBase="ResNet"
-#encoderVariant="resnet34"
-#encoderWeights="imagenet"
+encoderBase="ResNet"
+encoderVariant="resnet34"
+encoderWeights="imagenet"
 optimizerName="Adam"
 batchSize=8
 
-imagesDir=/data/images
-imagesPattern="r{r+}_z{z+}_c{c+}.ome.tif"
-labelsDir=/data/labels
-labelsPattern="z{z+}.ome.tif"
+imagesDir=/data/input/train/intensity
+imagesPattern="p0_y1_r{r+}_c0.ome.tif"
+labelsDir=/data/input/train/labels
+labelsPattern="p0_y1_r{r+}_c0.ome.tif"
 trainFraction=0.7
 segmentationMode="multilabel"
 
 lossName="JaccardLoss"
 metricName="IoU"
-maxEpochs=100
-patience=4
+maxEpochs=2
+patience=1
 minDelta=1e-4
 
 # Output paths
 outputDir=/data/output
 
+#            --rm \
+#            --gpus all \
+#            --privileged -v /dev:/dev \
+
 # Remove the --gpus all to test on CPU
 docker run --mount type=bind,source="${data_path}",target=/data \
             --user "$(id -u)":"$(id -g)" \
-            --rm \
-	    --gpus all \
-	    --privileged -v /dev:/dev \
             labshare/polus-smp-training-plugin:"${version}" \
             --modelName ${modelName} \
-            --encoderBaseVariantWeights ${encoderBaseVariantWeights} \
+            --encoderBase ${encoderBase} \
+            --encoderVariant ${encoderVariant} \
+            --encoderWeights ${encoderWeights} \
             --optimizerName ${optimizerName} \
+            --batchSize ${batchSize} \
             --imagesDir ${imagesDir} \
             --imagesPattern ${imagesPattern} \
             --labelsDir ${labelsDir} \
