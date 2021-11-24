@@ -40,14 +40,20 @@ def get_labels_mapping(images_fp: FilePattern, labels_fp: FilePattern) -> Dict[P
     Returns:
         dictionary containing mapping between image & label names
     """
-    return {
-        file[0]['file']: labels_fp.get_matching(**{
-            k.upper(): v
-            for k, v in file[0].items()
-            if k != 'file'
-        })[0]['file']
-        for file in images_fp()
-    }
+
+    dict = {}
+    for img, lab in zip(images_fp(), labels_fp()):
+        dict[img[0]['file']] = lab[0]['file']    
+    return dict
+
+    # return {
+    #     file[0]['file']: labels_fp.get_matching(**{
+    #         k.upper(): v
+    #         for k, v in file[0].items()
+    #         if k != 'file'
+    #     })[0]['file']
+    #     for file in images_fp()
+    # }
 
 
 def iter_tiles_2d(image_path: Path) -> Generator[Tuple[Path, int, int, int, int], None, None]:

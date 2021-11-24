@@ -1,8 +1,10 @@
 import logging
+import json, os
 from pathlib import Path
 from typing import Any
 from typing import Dict
 from typing import Tuple
+import csv
 
 import segmentation_models_pytorch as smp
 import torch
@@ -27,7 +29,8 @@ logger = logging.getLogger("training")
 logger.setLevel(utils.POLUS_LOG)
 
 
-def initialize_model(checkpoint: Dict[str, Any]) -> Tuple[SegmentationModel, Optimizer, int]:
+def initialize_model(checkpoint: Dict[str, Any],
+                     device: Any) -> Tuple[SegmentationModel, Optimizer, int]:
     """ Initializes a model from a Checkpoint. A checkpoint knows the:
 
         * 'model_name': The architecture of the model in use.
@@ -63,7 +66,7 @@ def initialize_model(checkpoint: Dict[str, Any]) -> Tuple[SegmentationModel, Opt
         encoder_name=checkpoint['encoder_variant'],
         encoder_weights=checkpoint['encoder_weights'],
         in_channels=1,  # all images in WIPP are single-channel.
-        activation='sigmoid',  # TODO: Change for Cellpose FlowFields
+        activation='sigmoid' # TODO: Change for Cellpose FlowFields
     )
 
     # noinspection PyArgumentList
@@ -165,6 +168,11 @@ def train_model(
         epoch_iterators: Tuple[TrainEpoch, ValidEpoch],
         early_stopping: Tuple[int, int, float],
         starting_epoch: int,
+        output_dir: str,
+        model: SegmentationModel, 
+        checkpoint : SegmentationModel,
+        optimizer : Any,
+        checkpointFreq : int
 ) -> int:
     """ Trains the model.
 
@@ -185,29 +193,44 @@ def train_model(
     trainer, validator = epoch_iterators
     max_epochs, patience, min_delta = early_stopping
 
-    best_loss, epoch, epochs_without_improvement = 1e5, starting_epoch, 0
-    for epoch, _ in enumerate(range(max_epochs), start=starting_epoch + 1):
-        logger.info(''.join((5 * '-', f'   Epoch: {epoch}    ', 5 * '-')))
+    # checkpoint_dirs = os.path.join(output_dir, "checkpoints")
+    # if not os.path.exists(checkpoint_dirs):
+    #     os.mkdir(checkpoint_dirs)
 
-        train_logs = trainer.run(train_loader)
-        train_str = ', '.join(f'{k}: {v:.8f}' for k, v in train_logs.items())
-        logger.info(f'Train logs: {train_str}')
+    with open(os.path.join(output_dir, "trainlogs.csv"), 'a') as f_train:
+        with open(os.path.join(output_dir, "validlogs.csv"), 'a') as f_valid:
 
-        valid_logs = validator.run(valid_loader)
-        valid_str = ', '.join(f'{k}: {v:.8f}' for k, v in valid_logs.items())
-        logger.info(f'Valid logs: {valid_str}')
+            best_loss, epoch, epochs_without_improvement = 1e5, starting_epoch, 0
+            for epoch, _ in enumerate(range(max_epochs), start=starting_epoch + 1):
+                logger.info(''.join((5 * '-', f'   Epoch: {epoch}    ', 5 * '-')))
 
-        # check for early stopping
-        current_loss = valid_logs[trainer.loss.__name__]
-        if (best_loss - current_loss) < min_delta:
-            epochs_without_improvement, best_loss = 0, current_loss
-        else:
-            epochs_without_improvement += 1
+                train_logs = trainer.run(train_loader)
+                train_str = ', '.join(f'{k}: {v:.8f}' for k, v in train_logs.items())
+                logger.info(f'Train logs: {train_str}')
+                f_train.write("\n" + train_str)
 
-        if epochs_without_improvement >= patience:
-            logger.info(f'No improvement for {patience} epochs. Stopping training early...')
-            break
-    else:
-        logger.info(f'Finished training for user-specified {max_epochs} epochs...')
+                valid_logs = validator.run(valid_loader)
+                valid_str = ', '.join(f'{k}: {v:.8f}' for k, v in valid_logs.items())
+                logger.info(f'Valid logs: {valid_str}')
+                f_valid.write("\n" + valid_str)
+
+                # check for early stopping
+                current_loss = valid_logs[trainer.loss.__name__]
+                if (best_loss - current_loss) < min_delta:
+                    epochs_without_improvement, best_loss = 0, current_loss
+                else:
+                    epochs_without_improvement += 1
+
+                if (epoch%checkpointFreq) == 0:
+                    # torch.save(checkpoint, os.path.join(checkpoint_dirs, f"Epoch_{epoch}.path"))
+                    checkpoint.update({'final_epoch': epoch,
+                                       'model_state_dict': model.state_dict(),
+                                       'optimizer_state_dict': optimizer.state_dict()})
+                    torch.save(checkpoint, output_dir.joinpath('checkpoint.pth'))
+                if epochs_without_improvement >= patience:
+                    logger.info(f'No improvement for {patience} epochs. Stopping training early...')
+                    break
+            else:
+                logger.info(f'Finished training for user-specified {max_epochs} epochs...')
 
     return epoch

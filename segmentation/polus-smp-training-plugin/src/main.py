@@ -1,5 +1,5 @@
 import argparse
-import logging
+import logging, os, json
 from pathlib import Path
 from typing import Any
 from typing import Dict
@@ -49,19 +49,28 @@ if __name__ == "__main__":
                         help='Size of each batch for training. If left unspecified, we will automatically use '
                              'the largest possible size based on the model architecture and GPU memory.')
 
-    parser.add_argument('--imagesDir', dest='imagesDir', type=str, required=True,
+    parser.add_argument('--imagesTrainDir', dest='imagesDir', type=str, required=True,
                         help='Collection containing images.')
-    parser.add_argument('--imagesPattern', dest='imagesPattern', type=str, required=True,
-                        help='Filename pattern for images.')
-    parser.add_argument('--labelsDir', dest='labelsDir', type=str, required=True,
+    parser.add_argument('--labelsTrainDir', dest='labelsDir', type=str, required=True,
                         help='Collection containing labels, i.e. the ground-truth, for the images.')
-    parser.add_argument('--labelsPattern', dest='labelsPattern', type=str, required=True,
+    parser.add_argument('--imagesValidDir', dest='imagesDir', type=str, required=True,
+                        help='Collection containing images.')
+    parser.add_argument('--labelsValidDir', dest='labelsDir', type=str, required=True,
+                        help='Collection containing labels, i.e. the ground-truth, for the images.')
+    parser.add_argument('--imagesPattern', dest='imagesPattern', type=str, required=False, default='.*',
+                        help='Filename pattern for images.')
+    parser.add_argument('--labelsPattern', dest='labelsPattern', type=str, required=False, default='.*',
                         help='Filename pattern for labels.')
     parser.add_argument('--trainFraction', dest='trainFraction', type=float, required=False, default=0.7,
                         help='Fraction of dataset to use for training.')
     parser.add_argument('--segmentationMode', dest='segmentationMode', type=str, required=True,
                         help='The kind of segmentation to perform.'
                              'Must be one of \'binary\', \'multilabel\', or \'multiclass\'')
+
+    parser.add_argument('--device', dest='device', type=str, required=False, default='cpu',
+                        help='Device to run process on')
+    parser.add_argument('--checkpointFrequency', dest='checkFreq', type=int, required=False, default=10,
+                        help="How often to update the checkpoints")
 
     parser.add_argument('--lossName', dest='lossName', type=str, required=False, default='JaccardLoss',
                         help='Name of loss function to use.')
@@ -99,7 +108,7 @@ if __name__ == "__main__":
             'optimizer_name': args.optimizerName,
             'final_epoch': 0,
             'model_state_dict': None,
-            'optimizer_state_dict': None,
+            'optimizer_state_dict': None
         }
     else:
         encoder_base = None
@@ -115,13 +124,19 @@ if __name__ == "__main__":
     if images_dir.joinpath('images').is_dir():
         images_dir = images_dir.joinpath('images')
     assert images_dir.exists()
-    images_pattern: str = args.imagesPattern
+    if args.imagesPattern == None:
+        images_pattern: str = ".*"
+    else:
+        images_pattern: str = args.imagesPattern
 
     labels_dir = Path(args.labelsDir).resolve()
     if labels_dir.joinpath('images').is_dir():
         labels_dir = labels_dir.joinpath('images')
     assert labels_dir.exists()
-    labels_pattern: str = args.labelsPattern
+    if args.labelsPattern == None:
+        labels_pattern: str = ".*"
+    else:
+        labels_pattern: str = args.labelsPattern
 
     train_fraction: float = args.trainFraction
 
@@ -138,6 +153,7 @@ if __name__ == "__main__":
     max_epochs = args.maxEpochs
     patience = args.patience
     min_delta = args.minDelta
+    device = args.device
 
     # Location to save model and checkpoint
     output_dir = Path(args.outputDir).resolve()
@@ -231,10 +247,14 @@ if __name__ == "__main__":
     logger.info(f'outputDir = {output_dir}')
 
     # TODO: Add support for multiple GPUs
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    if 'cuda' in device:
+        device = torch.device(device if torch.cuda.is_available() else 'cpu')
+    else:
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     logger.info(f'Using device: {device}...')
 
-    model, optimizer, starting_epoch = training.initialize_model(checkpoint)
+    model, optimizer, starting_epoch = training.initialize_model(checkpoint, device)
+    model.to(device)
 
     logger.info('Determining maximum possible batch size...')
     num_trainable_params = (utils.TILE_STRIDE ** 2) + sum(
@@ -269,11 +289,24 @@ if __name__ == "__main__":
         optimizer=optimizer,
     )
 
+    if not os.path.exists(os.path.join(output_dir, "trainlogs.csv")):
+        f = open(os.path.join(output_dir, "trainlogs.csv"), 'w+')
+        f.close()
+    if not os.path.exists(os.path.join(output_dir, "validlogs.csv")):
+        f = open(os.path.join(output_dir, "validlogs.csv"), 'w+')
+        f.close()
+
+    checkFreq = args.checkFreq
     final_epoch = training.train_model(
         dataloaders=dataloaders,
         epoch_iterators=epoch_iterators,
         early_stopping=(max_epochs, patience, min_delta),
         starting_epoch=starting_epoch,
+        output_dir=output_dir,
+        model=model,
+        checkpoint = checkpoint,
+        optimizer=optimizer,
+        checkpointFreq = checkFreq
     )
 
     logger.info('Saving model...')
