@@ -1,5 +1,6 @@
-import argparse
+import this
 import logging, os, json
+import argparse
 from pathlib import Path
 from typing import Any
 from typing import Dict
@@ -33,13 +34,13 @@ if __name__ == "__main__":
                              'See the README for available options.')
 
     parser.add_argument('--modelName', dest='modelName', type=str, required=False, default='Unet',
-                        help=f'Model architecture to use.')
+                        help='Which model architecture to use.')
 
     parser.add_argument('--encoderBase', dest='encoderBase', type=str, required=False, default='ResNet',
                         help='Base encoder to use.')
     parser.add_argument('--encoderVariant', dest='encoderVariant', type=str, required=False, default='resnet34',
                         help='Encoder variant to use.')
-    parser.add_argument('--encoderWeights', dest='encoderWeights', type=str, required=False, default='imagenet',
+    parser.add_argument('--encoderWeights', dest='encoderWeights', type=str, required=False,
                         help='Name of dataset with which the model was pretrained.')
 
     parser.add_argument('--optimizerName', dest='optimizerName', type=str, required=False, default='Adam',
@@ -69,9 +70,13 @@ if __name__ == "__main__":
 
     parser.add_argument('--device', dest='device', type=str, required=False, default='cpu',
                         help='Device to run process on')
-    parser.add_argument('--checkpointFrequency', dest='checkFreq', type=int, required=False, default=10,
+    parser.add_argument('--checkpointFrequency', dest='checkFreq', type=int, required=False, default=1,
                         help="How often to update the checkpoints")
 
+    parser.add_argument('--trainAlbumentations', dest='trainAlbumentations', type=str, required=False, 
+                        default='', help='The list of albumentations to apply to training data')
+    parser.add_argument('--validAlbumentations', dest='validAlbumentations', type=str, required=False,
+                        default='', help='The list of albumentations to apply to validation data')
     parser.add_argument('--lossName', dest='lossName', type=str, required=False, default='JaccardLoss',
                         help='Name of loss function to use.')
     parser.add_argument('--metricName', dest='metricName', type=str, required=False, default='IoU',
@@ -90,6 +95,29 @@ if __name__ == "__main__":
     # Parse the arguments
     args = parser.parse_args()
     error_messages = list()
+
+    # Model Configuration/Compilation
+    loss_name = args.lossName
+    metric_name = args.metricName
+    max_epochs = args.maxEpochs
+    patience = args.patience
+    min_delta = args.minDelta
+    device = args.device
+    trainAlbumentations = args.trainAlbumentations
+    validAlbumentations = args.validAlbumentations
+    train_fraction: float = args.trainFraction
+    segmentation_mode = args.segmentationMode
+    batch_size = args.batchSize
+    images_dir = Path(args.imagesDir).resolve()
+    labels_dir = Path(args.labelsDir).resolve()
+    images_pattern: str = args.imagesPattern
+    labels_pattern: str = args.labelsPattern
+    
+    # Location to save model and checkpoint
+    output_dir = Path(args.outputDir).resolve()
+    assert output_dir.exists()
+
+    config_path = os.path.join(output_dir, "config.json")
 
     # Model Creation/Specification via checkpoint dictionary
     pretrained_model: Optional[Path] = args.pretrainedModel
@@ -110,54 +138,50 @@ if __name__ == "__main__":
             'model_state_dict': None,
             'optimizer_state_dict': None
         }
+        config_dict = checkpoint
+        config_dict["imagesDir"] = str(images_dir)
+        config_dict["imagesPattern"] = images_pattern
+        config_dict["labelsDir"] = str(labels_dir)
+        config_dict["labelsPattern"] = labels_pattern
+        config_dict["trainFraction"] = train_fraction
+        config_dict["segmentationMode"] = segmentation_mode
+        config_dict["batchSize"] = batch_size
+        config_dict["loss_name"] = loss_name
+        config_dict["metric_name"] = metric_name
+        config_dict["patience"] = patience
+        config_dict["min_delta"] = min_delta
+        config_dict["device"] = device
+        config_dict["trainAlbumentations"] = trainAlbumentations
+        config_dict["validAlbumentations"] = validAlbumentations
+        print(config_dict)
+        with open(config_path, 'w') as config_file:
+            json.dump(config_dict, config_file)
+        
     else:
         encoder_base = None
         pretrained_model = Path(pretrained_model).resolve()
         checkpoint = torch.load(pretrained_model.joinpath('checkpoint.pth').resolve())
 
-    batch_size = args.batchSize
-    if batch_size is not None:
-        batch_size = int(batch_size)
-
+        if os.path.exists(config_path):
+            config_dict = json.load(config_path)
+    
+    trainAlbumentations = trainAlbumentations.split("_")
+    validAlbumentations = validAlbumentations.split("_")
+    
     # Dataset
-    images_dir = Path(args.imagesDir).resolve()
     if images_dir.joinpath('images').is_dir():
         images_dir = images_dir.joinpath('images')
     assert images_dir.exists()
-    if args.imagesPattern == None:
-        images_pattern: str = ".*"
-    else:
-        images_pattern: str = args.imagesPattern
 
-    labels_dir = Path(args.labelsDir).resolve()
-    if labels_dir.joinpath('images').is_dir():
+    if labels_dir.joinpath('labels').is_dir():
         labels_dir = labels_dir.joinpath('images')
     assert labels_dir.exists()
-    if args.labelsPattern == None:
-        labels_pattern: str = ".*"
-    else:
-        labels_pattern: str = args.labelsPattern
 
-    train_fraction: float = args.trainFraction
-
-    segmentation_mode = args.segmentationMode
     if segmentation_mode not in ('binary', 'multilabel', 'multiclass'):
         error_messages.append(
             f'segmentationMode must be one of \'binary\', \'multilabel\', \'multiclass\'. '
             f'Got {segmentation_mode} instead.'
         )
-
-    # Model Configuration/Compilation
-    loss_name = args.lossName
-    metric_name = args.metricName
-    max_epochs = args.maxEpochs
-    patience = args.patience
-    min_delta = args.minDelta
-    device = args.device
-
-    # Location to save model and checkpoint
-    output_dir = Path(args.outputDir).resolve()
-    assert output_dir.exists()
 
     # Error catching on input params
     if not 0 < train_fraction < 1:
@@ -253,8 +277,8 @@ if __name__ == "__main__":
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     logger.info(f'Using device: {device}...')
 
+    device = torch.device(device)
     model, optimizer, starting_epoch = training.initialize_model(checkpoint, device)
-    model.to(device)
 
     logger.info('Determining maximum possible batch size...')
     num_trainable_params = (utils.TILE_STRIDE ** 2) + sum(
@@ -276,6 +300,9 @@ if __name__ == "__main__":
         labels_pattern=labels_pattern,
         train_fraction=train_fraction,
         batch_size=batch_size,
+        trainAlbumentations = trainAlbumentations,
+        validAlbumentations = validAlbumentations,
+        device=device
     )
 
     # TODO: segmentation_mode 'multiclass' is broken on some datasets. Investigate why.
@@ -285,7 +312,7 @@ if __name__ == "__main__":
         model=model,
         loss=loss,
         metric=utils.METRICS[metric_name](),
-        device=device,
+        device='cuda',
         optimizer=optimizer,
     )
 
@@ -306,7 +333,8 @@ if __name__ == "__main__":
         model=model,
         checkpoint = checkpoint,
         optimizer=optimizer,
-        checkpointFreq = checkFreq
+        checkpointFreq = checkFreq,
+        device = device
     )
 
     logger.info('Saving model...')

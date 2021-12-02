@@ -19,6 +19,8 @@ from torch.nn.modules.loss import _Loss as TorchLoss
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader as TorchDataLoader
 
+import albumentations as albu
+
 import utils
 
 logging.basicConfig(
@@ -66,9 +68,10 @@ def initialize_model(checkpoint: Dict[str, Any],
         encoder_name=checkpoint['encoder_variant'],
         encoder_weights=checkpoint['encoder_weights'],
         in_channels=1,  # all images in WIPP are single-channel.
-        activation='sigmoid' # TODO: Change for Cellpose FlowFields
+        activation='sigmoid', # TODO: Change for Cellpose FlowFields
     )
-
+    model.to(device)
+    model.cuda()
     # noinspection PyArgumentList
     optimizer = utils.OPTIMIZERS[checkpoint['optimizer_name']](params=model.parameters())
 
@@ -79,6 +82,44 @@ def initialize_model(checkpoint: Dict[str, Any],
 
     return model, optimizer, starting_epoch
 
+def configure_augmentations(albumentations: list):
+
+    transform: list = []
+
+    albu_values = {
+        "HorizontalFlip": 0.5,
+        "ShiftScaleRotate": 1,
+        "GaussianNoise": 0.2,
+        "Perspective": 0.5,
+        "RandomBrightnessContrast": 1,
+        "RandomGamma": 1,
+        "Sharpen": 1,
+        "Blur": 1,
+        "MotionBlur": 1
+    }
+
+    albu_dictionary = {
+        "HorizontalFlip": albu.HorizontalFlip(p=albu_values["HorizontalFlip"]),
+        "ShiftScaleRotate": albu.ShiftScaleRotate(scale_limit=0.5, rotate_limit=0, \
+                            shift_limit=0.1, p=albu_values["ShiftScaleRotate"], border_mode=0),
+        "PadIfNeeded": albu.PadIfNeeded(min_height=256, min_width=256, always_apply=True, border_mode=0),
+        "RandomCrop": albu.RandomCrop(height=256, width=256, always_apply=True),
+        "GaussianNoise": albu.GaussNoise(p=albu_values["GaussianNoise"]),
+        "Perspective": albu.Perspective(p=albu_values["Perspective"]),
+        "RandomBrightnessContrast": albu.RandomBrightnessContrast(p=albu_values["RandomBrightnessContrast"]),
+        "RandomGamma":albu.RandomGamma(p=albu_values["RandomGamma"]),
+        "Sharpen":albu.Sharpen(p=albu_values["Sharpen"]),
+        "Blur":albu.Blur(blur_limit=3, p=albu_values["Blur"]),
+        "MotionBlur":albu.MotionBlur(blur_limit=3,p=albu_values["MotionBlur"])
+    }
+        
+
+    for albu_transform in albumentations:
+        if albu_transform in albu_dictionary.keys():
+            transform.append(albu_dictionary[albu_transform])
+
+    return transform
+
 
 def initialize_dataloaders(
         *,
@@ -88,6 +129,9 @@ def initialize_dataloaders(
         labels_pattern: str,
         train_fraction: float,
         batch_size: int,
+        trainAlbumentations: list,
+        validAlbumentations: list,
+        device: Any
 ) -> Tuple[TorchDataLoader, TorchDataLoader]:
     """ Initializes data-loaders for training and validation from the input
         image and label collections.
@@ -117,15 +161,24 @@ def initialize_dataloaders(
         shuffle=True,
     )
 
+    train_augmentations = configure_augmentations(albumentations=trainAlbumentations)
+    valid_augmentations = configure_augmentations(albumentations=validAlbumentations)
+
     train_dataset = utils.Dataset(
         labels_map={k: label_paths[k] for k in train_paths},
         tile_map=utils.get_tiles_mapping(train_paths),
+        augmentations=train_augmentations,
+        device=device
     )
     valid_dataset = utils.Dataset(
         labels_map={k: label_paths[k] for k in valid_paths},
         tile_map=utils.get_tiles_mapping(valid_paths),
+        augmentations=valid_augmentations,
+        device=device
     )
 
+    # train_dataset.to(device)
+    # valid_dataset.to(device)
     train_loader = TorchDataLoader(dataset=train_dataset, batch_size=batch_size)
     valid_loader = TorchDataLoader(dataset=valid_dataset, batch_size=batch_size)
 
@@ -172,7 +225,8 @@ def train_model(
         model: SegmentationModel, 
         checkpoint : SegmentationModel,
         optimizer : Any,
-        checkpointFreq : int
+        checkpointFreq : int,
+        device : Any
 ) -> int:
     """ Trains the model.
 
@@ -193,6 +247,7 @@ def train_model(
     trainer, validator = epoch_iterators
     max_epochs, patience, min_delta = early_stopping
 
+
     # checkpoint_dirs = os.path.join(output_dir, "checkpoints")
     # if not os.path.exists(checkpoint_dirs):
     #     os.mkdir(checkpoint_dirs)
@@ -204,15 +259,17 @@ def train_model(
             for epoch, _ in enumerate(range(max_epochs), start=starting_epoch + 1):
                 logger.info(''.join((5 * '-', f'   Epoch: {epoch}    ', 5 * '-')))
 
+                # trainer.to(device)
                 train_logs = trainer.run(train_loader)
                 train_str = ', '.join(f'{k}: {v:.8f}' for k, v in train_logs.items())
                 logger.info(f'Train logs: {train_str}')
-                f_train.write("\n" + train_str)
+                f_train.write(train_str + "\n")
 
+                # validator.to(device)
                 valid_logs = validator.run(valid_loader)
                 valid_str = ', '.join(f'{k}: {v:.8f}' for k, v in valid_logs.items())
                 logger.info(f'Valid logs: {valid_str}')
-                f_valid.write("\n" + valid_str)
+                f_valid.write(valid_str + "\n")
 
                 # check for early stopping
                 current_loss = valid_logs[trainer.loss.__name__]
