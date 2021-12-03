@@ -1,5 +1,6 @@
 import this
 import logging, os, json
+import logging.config
 import argparse
 from pathlib import Path
 from typing import Any
@@ -13,15 +14,7 @@ import training
 import utils
 
 if __name__ == "__main__":
-    logging.basicConfig(
-        format='%(asctime)s - %(name)-8s - %(levelname)-8s - %(message)s',
-        datefmt='%d-%b-%y %H:%M:%S',
-    )
-    logger = logging.getLogger("main")
-    logger.setLevel(utils.POLUS_LOG)
 
-    """ Argument parsing """
-    logger.info("Parsing arguments...")
     parser = argparse.ArgumentParser(prog='main', description='Segmentation models training plugin')
 
     # Input arguments
@@ -70,7 +63,8 @@ if __name__ == "__main__":
 
     parser.add_argument('--device', dest='device', type=str, required=False, default='cpu',
                         help='Device to run process on')
-    parser.add_argument('--override_checkpoint')
+    parser.add_argument('--create_checkpointDirectory', dest='create_checkpointDirectory', type=bool, required=False, default=False,
+                        help="Create separate files for all the checkpoints?")
     parser.add_argument('--checkpointFrequency', dest='checkFreq', type=int, required=False, default=1,
                         help="How often to update the checkpoints")
 
@@ -89,15 +83,33 @@ if __name__ == "__main__":
     parser.add_argument('--minDelta', dest='minDelta', type=float, required=False, default=1e-4,
                         help='Minimum improvement in loss to reset patience.')
 
-    # Output arguments
     parser.add_argument('--outputDir', dest='outputDir', type=str, required=True,
                         help='Location where the model and the final checkpoint will be saved.')
 
+
     # Parse the arguments
     args = parser.parse_args()
+    # Location to save model and checkpoint
+    output_dir = Path(args.outputDir).resolve()
+    assert output_dir.exists()
+    
+    os.environ["LOGFILE"] = os.path.join(str(output_dir), "logs.log")
+    # Initialize Logging
+    logging.basicConfig(filename='logs.log', \
+                        encoding ='utf-8',\
+                        format='%(asctime)s - %(name)-8s - %(levelname)-8s - %(message)s', \
+                        datefmt='%d-%b-%y %H:%M:%S')
+    logger = logging.getLogger("main")
+    logger.setLevel(utils.POLUS_LOG)
+
+    
+    
+    """ Argument parsing """
+    logger.info("Parsing arguments...")
     error_messages = list()
 
     # Model Configuration/Compilation
+    # Output Arguments 
     loss_name = args.lossName
     metric_name = args.metricName
     max_epochs = args.maxEpochs
@@ -113,10 +125,8 @@ if __name__ == "__main__":
     labels_dir = Path(args.labelsDir).resolve()
     images_pattern: str = args.imagesPattern
     labels_pattern: str = args.labelsPattern
-    
-    # Location to save model and checkpoint
-    output_dir = Path(args.outputDir).resolve()
-    assert output_dir.exists()
+    create_checkpointDirectory: bool = args.create_checkpointDirectory
+
 
     config_path = os.path.join(output_dir, "config.json")
 
@@ -154,6 +164,7 @@ if __name__ == "__main__":
         config_dict["device"] = device
         config_dict["trainAlbumentations"] = trainAlbumentations
         config_dict["validAlbumentations"] = validAlbumentations
+        config_dict["override_checkpoint"] = create_checkpointDirectory
         print(config_dict)
         with open(config_path, 'w') as config_file:
             json.dump(config_dict, config_file)
@@ -268,6 +279,7 @@ if __name__ == "__main__":
     logger.info(f'maxEpochs = {max_epochs}')
     logger.info(f'patience = {patience}')
     logger.info(f'minDelta = {min_delta}')
+    logger.info(f'create_checkpointDirectory = {create_checkpointDirectory}')
 
     logger.info(f'outputDir = {output_dir}')
 
@@ -336,6 +348,7 @@ if __name__ == "__main__":
         checkpoint = checkpoint,
         optimizer=optimizer,
         checkpointFreq = checkFreq,
+        create_checkpointDirectory = create_checkpointDirectory,
         device = device
     )
 

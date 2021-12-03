@@ -232,6 +232,7 @@ def train_model(
         checkpoint : SegmentationModel,
         optimizer : Any,
         checkpointFreq : int,
+        create_checkpointDirectory : bool,
         device : Any
 ) -> int:
     """ Trains the model.
@@ -253,10 +254,10 @@ def train_model(
     trainer, validator = epoch_iterators
     max_epochs, patience, min_delta = early_stopping
 
-
-    # checkpoint_dirs = os.path.join(output_dir, "checkpoints")
-    # if not os.path.exists(checkpoint_dirs):
-    #     os.mkdir(checkpoint_dirs)
+    if create_checkpointDirectory:
+        checkpoint_dirs = os.path.join(output_dir, "checkpoints")
+        if not os.path.exists(checkpoint_dirs):
+            os.mkdir(checkpoint_dirs)
 
     with open(os.path.join(output_dir, "trainlogs.csv"), 'a') as f_train:
         with open(os.path.join(output_dir, "validlogs.csv"), 'a') as f_valid:
@@ -288,7 +289,8 @@ def train_model(
                         f"Epochs without Improvement: {epochs_without_improvement}")
 
                 if (epoch%checkpointFreq) == 0:
-                    # torch.save(checkpoint, os.path.join(checkpoint_dirs, f"Epoch_{epoch}.path"))
+                    if create_checkpointDirectory:
+                        torch.save(checkpoint, os.path.join(checkpoint_dirs, f"Epoch_{epoch}.path"))
                     checkpoint.update({'final_epoch': epoch,
                                        'model_state_dict': model.state_dict(),
                                        'optimizer_state_dict': optimizer.state_dict()})
