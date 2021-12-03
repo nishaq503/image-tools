@@ -70,6 +70,7 @@ if __name__ == "__main__":
 
     parser.add_argument('--device', dest='device', type=str, required=False, default='cpu',
                         help='Device to run process on')
+    parser.add_argument('--override_checkpoint')
     parser.add_argument('--checkpointFrequency', dest='checkFreq', type=int, required=False, default=1,
                         help="How often to update the checkpoints")
 

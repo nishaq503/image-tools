@@ -211,7 +211,10 @@ def initialize_epoch_iterators(
     """
     logger.info('Initializing Epoch Iterators...')
 
-    epoch_kwargs = dict(model=model, loss=loss, metrics=[metric], device=device, verbose=False)
+    epoch_kwargs = dict(model=model, loss=loss, \
+        metrics=[metric, smp.utils.metrics.Fscore(), \
+            smp.utils.metrics.Accuracy(), smp.utils.metrics.Recall(), smp.utils.metrics.Precision()], \
+        device=device, verbose=False)
     trainer = smp.utils.train.TrainEpoch(optimizer=optimizer, **epoch_kwargs)
     validator = smp.utils.train.ValidEpoch(**epoch_kwargs)
 
@@ -275,7 +278,6 @@ def train_model(
                 f_valid.write(valid_str + "\n")
 
                 # check for early stopping
-
                 current_loss = valid_logs[trainer.loss.__name__]
                 if best_loss > current_loss:
                     epochs_without_improvement, best_loss = 0, current_loss
