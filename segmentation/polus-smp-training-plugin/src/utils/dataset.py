@@ -135,7 +135,7 @@ class Dataset(TorchDataset):
         self.tiles: helpers.Tiles = tile_map
         self.preprocessing = torchvision.transforms.Compose([
             torchvision.transforms.ToTensor(),
-            LocalNorm()])
+            LocalNorm(window_size=257)])
         self.augmentations = augmentations
         self.device = device
         self.segmentationMode = segmentationMode

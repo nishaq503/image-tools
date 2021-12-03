@@ -275,11 +275,15 @@ def train_model(
                 f_valid.write(valid_str + "\n")
 
                 # check for early stopping
+
                 current_loss = valid_logs[trainer.loss.__name__]
-                if (best_loss - current_loss) < min_delta:
+                if best_loss > current_loss:
                     epochs_without_improvement, best_loss = 0, current_loss
                 else:
                     epochs_without_improvement += 1
+
+                logger.info(f"BEST LOSS: {best_loss}, CURRENT LOSS: {current_loss}, MIN_DELTA: {min_delta}, " + \
+                        f"Epochs without Improvement: {epochs_without_improvement}")
 
                 if (epoch%checkpointFreq) == 0:
                     # torch.save(checkpoint, os.path.join(checkpoint_dirs, f"Epoch_{epoch}.path"))
