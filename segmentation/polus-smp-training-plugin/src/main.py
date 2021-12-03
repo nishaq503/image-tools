@@ -302,6 +302,7 @@ if __name__ == "__main__":
         batch_size=batch_size,
         trainAlbumentations = trainAlbumentations,
         validAlbumentations = validAlbumentations,
+        segmentationMode = segmentation_mode,
         device=device
     )
 

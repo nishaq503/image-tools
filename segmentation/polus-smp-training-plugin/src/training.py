@@ -131,6 +131,7 @@ def initialize_dataloaders(
         batch_size: int,
         trainAlbumentations: list,
         validAlbumentations: list,
+        segmentationMode: str,
         device: Any
 ) -> Tuple[TorchDataLoader, TorchDataLoader]:
     """ Initializes data-loaders for training and validation from the input
@@ -167,6 +168,7 @@ def initialize_dataloaders(
     train_dataset = utils.Dataset(
         labels_map={k: label_paths[k] for k in train_paths},
         tile_map=utils.get_tiles_mapping(train_paths),
+        segmentationMode = segmentationMode,
         augmentations=train_augmentations,
         device=device
     )
@@ -174,6 +176,7 @@ def initialize_dataloaders(
         labels_map={k: label_paths[k] for k in valid_paths},
         tile_map=utils.get_tiles_mapping(valid_paths),
         augmentations=valid_augmentations,
+        segmentationMode = segmentationMode,
         device=device
     )
 

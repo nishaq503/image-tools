@@ -129,6 +129,7 @@ class PoissonTransform(BasicTransform):
 
 class Dataset(TorchDataset):
     def __init__(self, labels_map: Dict[Path, Path], tile_map: helpers.Tiles,\
+                 segmentationMode: str, \
                  preprocessing=None, augmentations=None, device=None):
         self.labels_paths: Dict[Path, Path] = labels_map
         self.tiles: helpers.Tiles = tile_map
@@ -137,6 +138,7 @@ class Dataset(TorchDataset):
             LocalNorm()])
         self.augmentations = augmentations
         self.device = device
+        self.segmentationMode = segmentationMode
 
     def __getitem__(self, index: int):
         image_path, y_min, y_max, x_min, x_max = self.tiles[index]
@@ -145,11 +147,14 @@ class Dataset(TorchDataset):
         # read and preprocess image
         with BioReader(image_path) as reader:
             image_tile = reader[y_min:y_max, x_min:x_max, 0, 0, 0]
+
         image_tile = numpy.asarray(image_tile, dtype=numpy.float32)
 
         # read and preprocess label
         with BioReader(label_path) as reader:
             label_tile = reader[y_min:y_max, x_min:x_max, 0, 0, 0]
+            if self.segmentationMode == 'binary':
+                label_tile[image_tile > 0] = 1
         label_tile = numpy.asarray(label_tile, dtype=numpy.float32)
 
         transform = albumentations.Compose(self.augmentations)
