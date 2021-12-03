@@ -165,7 +165,6 @@ if __name__ == "__main__":
         config_dict["trainAlbumentations"] = trainAlbumentations
         config_dict["validAlbumentations"] = validAlbumentations
         config_dict["override_checkpoint"] = create_checkpointDirectory
-        print(config_dict)
         with open(config_path, 'w') as config_file:
             json.dump(config_dict, config_file)
         
