@@ -95,9 +95,7 @@ if __name__ == "__main__":
     
     os.environ["LOGFILE"] = os.path.join(str(output_dir), "logs.log")
     # Initialize Logging
-    logging.basicConfig(filename='logs.log', \
-                        encoding ='utf-8',\
-                        format='%(asctime)s - %(name)-8s - %(levelname)-8s - %(message)s', \
+    logging.basicConfig(format='%(asctime)s - %(name)-8s - %(levelname)-8s - %(message)s', \
                         datefmt='%d-%b-%y %H:%M:%S')
     logger = logging.getLogger("main")
     logger.setLevel(utils.POLUS_LOG)
@@ -176,8 +174,8 @@ if __name__ == "__main__":
         if os.path.exists(config_path):
             config_dict = json.load(config_path)
     
-    trainAlbumentations = trainAlbumentations.split("_")
-    validAlbumentations = validAlbumentations.split("_")
+    trainAlbumentations = trainAlbumentations.split(",")
+    validAlbumentations = validAlbumentations.split(",")
     
     # Dataset
     if images_dir.joinpath('images').is_dir():
