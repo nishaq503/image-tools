@@ -262,7 +262,10 @@ def train_model(
     with open(os.path.join(output_dir, "trainlogs.csv"), 'a') as f_train:
         with open(os.path.join(output_dir, "validlogs.csv"), 'a') as f_valid:
 
-            best_loss, epoch, epochs_without_improvement = 1e5, starting_epoch, 0
+            best_loss = 1e5
+            epoch = starting_epoch
+            epochs_without_improvement = 0
+            best_model = os.path.join(output_dir, "best_model.pth")
             for epoch, _ in enumerate(range(max_epochs), start=starting_epoch + 1):
                 logger.info(''.join((5 * '-', f'   Epoch: {epoch}    ', 5 * '-')))
 
@@ -279,11 +282,29 @@ def train_model(
                 f_valid.write(valid_str + "\n")
 
                 # check for early stopping
+                # hythem suggested this logic -- the flag min_delta can be used to change which method is used
                 current_loss = valid_logs[trainer.loss.__name__]
-                if best_loss > current_loss:
-                    epochs_without_improvement, best_loss = 0, current_loss
+                if min_delta == None:
+                    if best_loss > current_loss:
+                        epochs_without_improvement = 0
+                        best_loss = current_loss
+                        torch.save(checkpoint, best_model)
+                    else:
+                        epochs_without_improvement += 1
+                # in the original logic, the first best loss is set to 10000 and the current loss is usually some smaller number
+                # but the first best loss can never be compared to the first current loss.  In the chunk above, 
+                # best_loss is updated to current loss so now we can look at min_delta
                 else:
-                    epochs_without_improvement += 1
+                    if epoch == starting_epoch:
+                        best_loss = current_loss
+                    else:
+                        if (best_loss - current_loss) < min_delta:
+                            epochs_without_improvement = 0
+                            best_loss = current_loss
+                        else:
+                            epochs_without_improvement += 1
+                
+                        
 
                 logger.info(f"BEST LOSS: {best_loss}, CURRENT LOSS: {current_loss}, MIN_DELTA: {min_delta}, " + \
                         f"Epochs without Improvement: {epochs_without_improvement}")

@@ -80,7 +80,7 @@ if __name__ == "__main__":
                         help='Maximum number of epochs for which to continue training the model.')
     parser.add_argument('--patience', dest='patience', type=int, required=False, default=10,
                         help='Maximum number of epochs to wait for model to improve.')
-    parser.add_argument('--minDelta', dest='minDelta', type=float, required=False, default=1e-4,
+    parser.add_argument('--minDelta', dest='minDelta', type=float, required=False,
                         help='Minimum improvement in loss to reset patience.')
 
     parser.add_argument('--outputDir', dest='outputDir', type=str, required=True,
