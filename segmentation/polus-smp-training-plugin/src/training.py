@@ -301,6 +301,7 @@ def train_model(
                         if (best_loss - current_loss) < min_delta:
                             epochs_without_improvement = 0
                             best_loss = current_loss
+                            torch.save(checkpoint, best_model)
                         else:
                             epochs_without_improvement += 1
                 
