@@ -167,8 +167,6 @@ class Dataset(TorchDataset):
         assert image_tile.shape == label_tile.shape, \
             f"Image Tile ({image_tile.shape}) and Label Tile ({label_tile.shape}) do not have matching shapes"
 
-        # image_tile.to(self.device)
-        # label_tile.to(self.device)
         return image_tile, label_tile
 
     def __len__(self):

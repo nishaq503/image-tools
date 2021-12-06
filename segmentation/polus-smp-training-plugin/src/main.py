@@ -172,7 +172,8 @@ if __name__ == "__main__":
         checkpoint = torch.load(pretrained_model.joinpath('checkpoint.pth').resolve())
 
         if os.path.exists(config_path):
-            config_dict = json.load(config_path)
+            json_obj = open(config_path, 'r')
+            config_dict = json.load(json_obj)
     
     trainAlbumentations = trainAlbumentations.split(",")
     validAlbumentations = validAlbumentations.split(",")
