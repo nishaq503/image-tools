@@ -282,6 +282,8 @@ def train_model(
                 f_valid.write(valid_str + "\n")
 
                 # check for early stopping
+                # create an extra flag to decide on what metric we want to stop on
+                    # might want to use fscore, iouscore, not just loss.
                 # hythem suggested this logic -- the flag min_delta can be used to change which method is used
                 current_loss = valid_logs[trainer.loss.__name__]
                 if min_delta == None:
