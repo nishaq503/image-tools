@@ -1,6 +1,7 @@
+import this
+import logging, os, json
+import logging.config
 import argparse
-import inspect
-import logging
 from pathlib import Path
 from typing import Any
 from typing import Dict
@@ -13,15 +14,7 @@ import training
 import utils
 
 if __name__ == "__main__":
-    logging.basicConfig(
-        format='%(asctime)s - %(name)-8s - %(levelname)-8s - %(message)s',
-        datefmt='%d-%b-%y %H:%M:%S',
-    )
-    logger = logging.getLogger("main")
-    logger.setLevel(utils.POLUS_LOG)
 
-    """ Argument parsing """
-    logger.info("Parsing arguments...")
     parser = argparse.ArgumentParser(prog='main', description='Segmentation models training plugin')
 
     # Input arguments
@@ -34,13 +27,13 @@ if __name__ == "__main__":
                              'See the README for available options.')
 
     parser.add_argument('--modelName', dest='modelName', type=str, required=False, default='Unet',
-                        help=f'Model architecture to use.')
+                        help='Which model architecture to use.')
 
     parser.add_argument('--encoderBase', dest='encoderBase', type=str, required=False, default='ResNet',
                         help='Base encoder to use.')
     parser.add_argument('--encoderVariant', dest='encoderVariant', type=str, required=False, default='resnet34',
                         help='Encoder variant to use.')
-    parser.add_argument('--encoderWeights', dest='encoderWeights', type=str, required=False, default='imagenet',
+    parser.add_argument('--encoderWeights', dest='encoderWeights', type=str, required=False,
                         help='Name of dataset with which the model was pretrained.')
 
     parser.add_argument('--optimizerName', dest='optimizerName', type=str, required=False, default='Adam',
@@ -50,13 +43,17 @@ if __name__ == "__main__":
                         help='Size of each batch for training. If left unspecified, we will automatically use '
                              'the largest possible size based on the model architecture and GPU memory.')
 
-    parser.add_argument('--imagesDir', dest='imagesDir', type=str, required=True,
+    parser.add_argument('--imagesTrainDir', dest='imagesDir', type=str, required=True,
                         help='Collection containing images.')
-    parser.add_argument('--imagesPattern', dest='imagesPattern', type=str, required=True,
-                        help='Filename pattern for images.')
-    parser.add_argument('--labelsDir', dest='labelsDir', type=str, required=True,
+    parser.add_argument('--labelsTrainDir', dest='labelsDir', type=str, required=True,
                         help='Collection containing labels, i.e. the ground-truth, for the images.')
-    parser.add_argument('--labelsPattern', dest='labelsPattern', type=str, required=True,
+    parser.add_argument('--imagesValidDir', dest='imagesDir', type=str, required=True,
+                        help='Collection containing images.')
+    parser.add_argument('--labelsValidDir', dest='labelsDir', type=str, required=True,
+                        help='Collection containing labels, i.e. the ground-truth, for the images.')
+    parser.add_argument('--imagesPattern', dest='imagesPattern', type=str, required=False, default='.*',
+                        help='Filename pattern for images.')
+    parser.add_argument('--labelsPattern', dest='labelsPattern', type=str, required=False, default='.*',
                         help='Filename pattern for labels.')
     parser.add_argument('--trainFraction', dest='trainFraction', type=float, required=False, default=0.7,
                         help='Fraction of dataset to use for training.')
@@ -64,6 +61,17 @@ if __name__ == "__main__":
                         help='The kind of segmentation to perform.'
                              'Must be one of \'binary\', \'multilabel\', or \'multiclass\'')
 
+    parser.add_argument('--device', dest='device', type=str, required=False, default='cpu',
+                        help='Device to run process on')
+    parser.add_argument('--create_checkpointDirectory', dest='create_checkpointDirectory', type=bool, required=False, default=False,
+                        help="Create separate files for all the checkpoints?")
+    parser.add_argument('--checkpointFrequency', dest='checkFreq', type=int, required=False, default=1,
+                        help="How often to update the checkpoints")
+
+    parser.add_argument('--trainAlbumentations', dest='trainAlbumentations', type=str, required=False, 
+                        default='', help='The list of albumentations to apply to training data')
+    parser.add_argument('--validAlbumentations', dest='validAlbumentations', type=str, required=False,
+                        default='', help='The list of albumentations to apply to validation data')
     parser.add_argument('--lossName', dest='lossName', type=str, required=False, default='JaccardLoss',
                         help='Name of loss function to use.')
     parser.add_argument('--metricName', dest='metricName', type=str, required=False, default='IoU',
@@ -72,16 +80,53 @@ if __name__ == "__main__":
                         help='Maximum number of epochs for which to continue training the model.')
     parser.add_argument('--patience', dest='patience', type=int, required=False, default=10,
                         help='Maximum number of epochs to wait for model to improve.')
-    parser.add_argument('--minDelta', dest='minDelta', type=float, required=False, default=1e-4,
+    parser.add_argument('--minDelta', dest='minDelta', type=float, required=False,
                         help='Minimum improvement in loss to reset patience.')
 
-    # Output arguments
     parser.add_argument('--outputDir', dest='outputDir', type=str, required=True,
                         help='Location where the model and the final checkpoint will be saved.')
 
+
     # Parse the arguments
     args = parser.parse_args()
+    # Location to save model and checkpoint
+    output_dir = Path(args.outputDir).resolve()
+    assert output_dir.exists()
+    
+    os.environ["LOGFILE"] = os.path.join(str(output_dir), "logs.log")
+    # Initialize Logging
+    logging.basicConfig(format='%(asctime)s - %(name)-8s - %(levelname)-8s - %(message)s', \
+                        datefmt='%d-%b-%y %H:%M:%S')
+    logger = logging.getLogger("main")
+    logger.setLevel(utils.POLUS_LOG)
+
+    
+    
+    """ Argument parsing """
+    logger.info("Parsing arguments...")
     error_messages = list()
+
+    # Model Configuration/Compilation
+    # Output Arguments 
+    loss_name = args.lossName
+    metric_name = args.metricName
+    max_epochs = args.maxEpochs
+    patience = args.patience
+    min_delta = args.minDelta
+    device = args.device
+    trainAlbumentations = args.trainAlbumentations
+    validAlbumentations = args.validAlbumentations
+    train_fraction: float = args.trainFraction
+    segmentation_mode = args.segmentationMode
+    batch_size = args.batchSize
+    images_dir = Path(args.imagesDir).resolve()
+    labels_dir = Path(args.labelsDir).resolve()
+    images_pattern: str = args.imagesPattern
+    labels_pattern: str = args.labelsPattern
+    create_checkpointDirectory: bool = args.create_checkpointDirectory
+
+
+    config_path = os.path.join(output_dir, "config.json")
 
     # Model Creation/Specification via checkpoint dictionary
     pretrained_model: Optional[Path] = args.pretrainedModel
@@ -100,49 +145,53 @@ if __name__ == "__main__":
             'optimizer_name': args.optimizerName,
             'final_epoch': 0,
             'model_state_dict': None,
-            'optimizer_state_dict': None,
+            'optimizer_state_dict': None
         }
+        config_dict = checkpoint
+        config_dict["imagesDir"] = str(images_dir)
+        config_dict["imagesPattern"] = images_pattern
+        config_dict["labelsDir"] = str(labels_dir)
+        config_dict["labelsPattern"] = labels_pattern
+        config_dict["trainFraction"] = train_fraction
+        config_dict["segmentationMode"] = segmentation_mode
+        config_dict["batchSize"] = batch_size
+        config_dict["loss_name"] = loss_name
+        config_dict["metric_name"] = metric_name
+        config_dict["patience"] = patience
+        config_dict["min_delta"] = min_delta
+        config_dict["device"] = device
+        config_dict["trainAlbumentations"] = trainAlbumentations
+        config_dict["validAlbumentations"] = validAlbumentations
+        config_dict["override_checkpoint"] = create_checkpointDirectory
+        with open(config_path, 'w') as config_file:
+            json.dump(config_dict, config_file)
+        
     else:
         encoder_base = None
         pretrained_model = Path(pretrained_model).resolve()
         checkpoint = torch.load(pretrained_model.joinpath('checkpoint.pth').resolve())
 
-    batch_size = args.batchSize
-    if batch_size is not None:
-        batch_size = int(batch_size)
-
+        if os.path.exists(config_path):
+            json_obj = open(config_path, 'r')
+            config_dict = json.load(json_obj)
+    
+    trainAlbumentations = trainAlbumentations.split(",")
+    validAlbumentations = validAlbumentations.split(",")
+    
     # Dataset
-    images_dir = Path(args.imagesDir).resolve()
     if images_dir.joinpath('images').is_dir():
         images_dir = images_dir.joinpath('images')
     assert images_dir.exists()
-    images_pattern: str = args.imagesPattern
 
-    labels_dir = Path(args.labelsDir).resolve()
-    if labels_dir.joinpath('images').is_dir():
+    if labels_dir.joinpath('labels').is_dir():
         labels_dir = labels_dir.joinpath('images')
     assert labels_dir.exists()
-    labels_pattern: str = args.labelsPattern
 
-    train_fraction: float = args.trainFraction
-
-    segmentation_mode = args.segmentationMode
     if segmentation_mode not in ('binary', 'multilabel', 'multiclass'):
         error_messages.append(
             f'segmentationMode must be one of \'binary\', \'multilabel\', \'multiclass\'. '
             f'Got {segmentation_mode} instead.'
         )
-
-    # Model Configuration/Compilation
-    loss_name = args.lossName
-    metric_name = args.metricName
-    max_epochs = args.maxEpochs
-    patience = args.patience
-    min_delta = args.minDelta
-
-    # Location to save model and checkpoint
-    output_dir = Path(args.outputDir).resolve()
-    assert output_dir.exists()
 
     # Error catching on input params
     if not 0 < train_fraction < 1:
@@ -228,18 +277,19 @@ if __name__ == "__main__":
     logger.info(f'maxEpochs = {max_epochs}')
     logger.info(f'patience = {patience}')
     logger.info(f'minDelta = {min_delta}')
+    logger.info(f'create_checkpointDirectory = {create_checkpointDirectory}')
 
     logger.info(f'outputDir = {output_dir}')
 
     # TODO: Add support for multiple GPUs
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    if 'cuda' in device:
+        device = torch.device(device if torch.cuda.is_available() else 'cpu')
+    else:
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     logger.info(f'Using device: {device}...')
 
-    model, optimizer, starting_epoch = training.initialize_model(
-        checkpoint=checkpoint,
-        state_dict=checkpoint['model_state_dict'],
-        device=device,
-    )
+    device = torch.device(device)
+    model, optimizer, starting_epoch = training.initialize_model(checkpoint, device)
 
     logger.info('Determining maximum possible batch size...')
     num_trainable_params = (utils.TILE_STRIDE ** 2) + sum(
@@ -261,32 +311,43 @@ if __name__ == "__main__":
         labels_pattern=labels_pattern,
         train_fraction=train_fraction,
         batch_size=batch_size,
+        trainAlbumentations = trainAlbumentations,
+        validAlbumentations = validAlbumentations,
+        segmentationMode = segmentation_mode,
+        device=device
     )
 
     # TODO: segmentation_mode 'multiclass' is broken on some datasets. Investigate why.
-    loss_class = utils.LOSSES[loss_name]
-    loss_params = inspect.signature(loss_class.__init__).parameters
-    loss_kwargs = dict()
-    if 'mode' in loss_params:
-        loss_kwargs['mode'] = segmentation_mode
-    elif 'smooth_factor' in loss_params:
-        loss_kwargs['smooth_factor'] = 0.1
-
-    loss = loss_class(**loss_kwargs)
+    loss = utils.LOSSES[loss_name](segmentation_mode)
     loss.__name__ = loss_name
     epoch_iterators = training.initialize_epoch_iterators(
         model=model,
         loss=loss,
         metric=utils.METRICS[metric_name](),
-        device=device,
+        device='cuda',
         optimizer=optimizer,
     )
 
+    if not os.path.exists(os.path.join(output_dir, "trainlogs.csv")):
+        f = open(os.path.join(output_dir, "trainlogs.csv"), 'w+')
+        f.close()
+    if not os.path.exists(os.path.join(output_dir, "validlogs.csv")):
+        f = open(os.path.join(output_dir, "validlogs.csv"), 'w+')
+        f.close()
+
+    checkFreq = args.checkFreq
     final_epoch = training.train_model(
         dataloaders=dataloaders,
         epoch_iterators=epoch_iterators,
         early_stopping=(max_epochs, patience, min_delta),
         starting_epoch=starting_epoch,
+        output_dir=output_dir,
+        model=model,
+        checkpoint = checkpoint,
+        optimizer=optimizer,
+        checkpointFreq = checkFreq,
+        create_checkpointDirectory = create_checkpointDirectory,
+        device = device
     )
 
     logger.info('Saving model...')

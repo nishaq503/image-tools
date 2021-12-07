@@ -128,13 +128,17 @@ class PoissonTransform(BasicTransform):
 
 
 class Dataset(TorchDataset):
-    def __init__(self, labels_map: Dict[Path, Path], tile_map: helpers.Tiles):
+    def __init__(self, labels_map: Dict[Path, Path], tile_map: helpers.Tiles,\
+                 segmentationMode: str, \
+                 preprocessing=None, augmentations=None, device=None):
         self.labels_paths: Dict[Path, Path] = labels_map
         self.tiles: helpers.Tiles = tile_map
         self.preprocessing = torchvision.transforms.Compose([
             torchvision.transforms.ToTensor(),
-            LocalNorm(),
-        ])
+            LocalNorm(window_size=257)])
+        self.augmentations = augmentations
+        self.device = device
+        self.segmentationMode = segmentationMode
 
     def __getitem__(self, index: int):
         image_path, y_min, y_max, x_min, x_max = self.tiles[index]
@@ -143,37 +147,25 @@ class Dataset(TorchDataset):
         # read and preprocess image
         with BioReader(image_path) as reader:
             image_tile = reader[y_min:y_max, x_min:x_max, 0, 0, 0]
+
         image_tile = numpy.asarray(image_tile, dtype=numpy.float32)
 
         # read and preprocess label
         with BioReader(label_path) as reader:
             label_tile = reader[y_min:y_max, x_min:x_max, 0, 0, 0]
-        label_tile = numpy.asarray(label_tile, dtype=numpy.int64)
+            if self.segmentationMode == 'binary':
+                label_tile[image_tile > 0] = 1
+        label_tile = numpy.asarray(label_tile, dtype=numpy.float32)
 
-        transform = albumentations.Compose(
-            [
-                albumentations.RandomCrop(width=256, height=256),
-                albumentations.GridDistortion(num_steps=5, distort_limit=0.3, p=0.1),
-                albumentations.RandomBrightnessContrast(brightness_limit=0.8, contrast_limit=0.4, p=0.2),
-                PoissonTransform(peak=10, p=0.3),
-                albumentations.OneOf(
-                    [
-                        albumentations.MotionBlur(blur_limit=15, p=0.1),
-                        albumentations.Blur(blur_limit=15, p=0.1),
-                        albumentations.MedianBlur(blur_limit=3, p=.1)
-                    ],
-                    p=0.2
-                ),
-            ]
-        )
+        transform = albumentations.Compose(self.augmentations)
 
         sample = transform(image=image_tile, mask=label_tile)
         image_tile, label_tile = sample['image'], sample['mask']
 
+        label_tile = numpy.reshape(label_tile, (1, y_max - y_min, x_max - x_min))
         image_tile = self.preprocessing(image_tile).numpy()
-        label_tile = label_tile[None, ...]
-        # label_tile = numpy.reshape(label_tile, (1, y_max - y_min, x_max - x_min))
-        assert image_tile.shape == label_tile.shape, f'image and label and different shapes: {image_tile.shape} vs {label_tile.shape}'
+        assert image_tile.shape == label_tile.shape, \
+            f"Image Tile ({image_tile.shape}) and Label Tile ({label_tile.shape}) do not have matching shapes"
 
         return image_tile, label_tile
 

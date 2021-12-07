@@ -1,13 +1,13 @@
 import logging
+import json, os
 from pathlib import Path
 from typing import Any
 from typing import Dict
-from typing import Optional
 from typing import Tuple
+import csv
 
 import segmentation_models_pytorch as smp
 import torch
-import torch.nn.functional
 from filepattern import FilePattern
 from segmentation_models_pytorch.base import SegmentationModel
 from segmentation_models_pytorch.utils.base import Metric
@@ -19,6 +19,8 @@ from torch.nn.modules.loss import _Loss as TorchLoss
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader as TorchDataLoader
 
+import albumentations as albu
+
 import utils
 
 logging.basicConfig(
@@ -29,11 +31,8 @@ logger = logging.getLogger("training")
 logger.setLevel(utils.POLUS_LOG)
 
 
-def initialize_model(
-        checkpoint: Dict[str, Any],
-        state_dict: Optional = None,
-        device: torch.device = None,
-) -> Tuple[SegmentationModel, Optimizer, int]:
+def initialize_model(checkpoint: Dict[str, Any],
+                     device: Any) -> Tuple[SegmentationModel, Optimizer, int]:
     """ Initializes a model from a Checkpoint. A checkpoint knows the:
 
         * 'model_name': The architecture of the model in use.
@@ -52,8 +51,6 @@ def initialize_model(
 
     Args:
         checkpoint: A Checkpoint dictionary.
-        state_dict: For a model previously trained by this plugin.
-        device: The device to use for the model.
 
     Returns:
         A 3-tuple of the:
@@ -69,14 +66,12 @@ def initialize_model(
     # noinspection PyArgumentList
     model = utils.MODELS[checkpoint['model_name']](
         encoder_name=checkpoint['encoder_variant'],
-        encoder_weights=checkpoint['encoder_weights'] if state_dict is None else None,
+        encoder_weights=checkpoint['encoder_weights'],
         in_channels=1,  # all images in WIPP are single-channel.
-        activation='sigmoid',  # TODO: Change for Cellpose FlowFields
+        activation='sigmoid', # TODO: Change for Cellpose FlowFields
     )
-    if state_dict is not None:
-        model.load_state_dict(state_dict)
     model.to(device)
-
+    model.cuda()
     # noinspection PyArgumentList
     optimizer = utils.OPTIMIZERS[checkpoint['optimizer_name']](params=model.parameters())
 
@@ -87,6 +82,44 @@ def initialize_model(
 
     return model, optimizer, starting_epoch
 
+def configure_augmentations(albumentations: list):
+
+    transform: list = []
+
+    albu_values = {
+        "HorizontalFlip": 0.5,
+        "ShiftScaleRotate": 1,
+        "GaussianNoise": 0.2,
+        "Perspective": 0.5,
+        "RandomBrightnessContrast": 1,
+        "RandomGamma": 1,
+        "Sharpen": 1,
+        "Blur": 1,
+        "MotionBlur": 1
+    }
+
+    albu_dictionary = {
+        "HorizontalFlip": albu.HorizontalFlip(p=albu_values["HorizontalFlip"]),
+        "ShiftScaleRotate": albu.ShiftScaleRotate(scale_limit=0.5, rotate_limit=0, \
+                            shift_limit=0.1, p=albu_values["ShiftScaleRotate"], border_mode=0),
+        "PadIfNeeded": albu.PadIfNeeded(min_height=256, min_width=256, always_apply=True, border_mode=0),
+        "RandomCrop": albu.RandomCrop(height=256, width=256, always_apply=True),
+        "GaussianNoise": albu.GaussNoise(p=albu_values["GaussianNoise"]),
+        "Perspective": albu.Perspective(p=albu_values["Perspective"]),
+        "RandomBrightnessContrast": albu.RandomBrightnessContrast(p=albu_values["RandomBrightnessContrast"]),
+        "RandomGamma":albu.RandomGamma(p=albu_values["RandomGamma"]),
+        "Sharpen":albu.Sharpen(p=albu_values["Sharpen"]),
+        "Blur":albu.Blur(blur_limit=3, p=albu_values["Blur"]),
+        "MotionBlur":albu.MotionBlur(blur_limit=3,p=albu_values["MotionBlur"])
+    }
+        
+
+    for albu_transform in albumentations:
+        if albu_transform in albu_dictionary.keys():
+            transform.append(albu_dictionary[albu_transform])
+
+    return transform
+
 
 def initialize_dataloaders(
         *,
@@ -96,6 +129,10 @@ def initialize_dataloaders(
         labels_pattern: str,
         train_fraction: float,
         batch_size: int,
+        trainAlbumentations: list,
+        validAlbumentations: list,
+        segmentationMode: str,
+        device: Any
 ) -> Tuple[TorchDataLoader, TorchDataLoader]:
     """ Initializes data-loaders for training and validation from the input
         image and label collections.
@@ -125,15 +162,26 @@ def initialize_dataloaders(
         shuffle=True,
     )
 
+    train_augmentations = configure_augmentations(albumentations=trainAlbumentations)
+    valid_augmentations = configure_augmentations(albumentations=validAlbumentations)
+
     train_dataset = utils.Dataset(
         labels_map={k: label_paths[k] for k in train_paths},
         tile_map=utils.get_tiles_mapping(train_paths),
+        segmentationMode = segmentationMode,
+        augmentations=train_augmentations,
+        device=device
     )
     valid_dataset = utils.Dataset(
         labels_map={k: label_paths[k] for k in valid_paths},
         tile_map=utils.get_tiles_mapping(valid_paths),
+        augmentations=valid_augmentations,
+        segmentationMode = segmentationMode,
+        device=device
     )
 
+    # train_dataset.to(device)
+    # valid_dataset.to(device)
     train_loader = TorchDataLoader(dataset=train_dataset, batch_size=batch_size)
     valid_loader = TorchDataLoader(dataset=valid_dataset, batch_size=batch_size)
 
@@ -163,7 +211,10 @@ def initialize_epoch_iterators(
     """
     logger.info('Initializing Epoch Iterators...')
 
-    epoch_kwargs = dict(model=model, loss=loss, metrics=[metric], device=device, verbose=False)
+    epoch_kwargs = dict(model=model, loss=loss, \
+        metrics=[metric, smp.utils.metrics.Fscore(), \
+            smp.utils.metrics.Accuracy(), smp.utils.metrics.Recall(), smp.utils.metrics.Precision()], \
+        device=device, verbose=False)
     trainer = smp.utils.train.TrainEpoch(optimizer=optimizer, **epoch_kwargs)
     validator = smp.utils.train.ValidEpoch(**epoch_kwargs)
 
@@ -176,6 +227,13 @@ def train_model(
         epoch_iterators: Tuple[TrainEpoch, ValidEpoch],
         early_stopping: Tuple[int, int, float],
         starting_epoch: int,
+        output_dir: str,
+        model: SegmentationModel, 
+        checkpoint : SegmentationModel,
+        optimizer : Any,
+        checkpointFreq : int,
+        create_checkpointDirectory : bool,
+        device : Any
 ) -> int:
     """ Trains the model.
 
@@ -196,29 +254,75 @@ def train_model(
     trainer, validator = epoch_iterators
     max_epochs, patience, min_delta = early_stopping
 
-    best_loss, epoch, epochs_without_improvement = 1e5, starting_epoch, 0
-    for epoch, _ in enumerate(range(max_epochs), start=starting_epoch + 1):
-        logger.info(''.join((5 * '-', f'   Epoch: {epoch}    ', 5 * '-')))
+    if create_checkpointDirectory:
+        checkpoint_dirs = os.path.join(output_dir, "checkpoints")
+        if not os.path.exists(checkpoint_dirs):
+            os.mkdir(checkpoint_dirs)
 
-        train_logs = trainer.run(train_loader)
-        train_str = ', '.join(f'{k}: {v:.8f}' for k, v in train_logs.items())
-        logger.info(f'Train logs: {train_str}')
+    with open(os.path.join(output_dir, "trainlogs.csv"), 'a') as f_train:
+        with open(os.path.join(output_dir, "validlogs.csv"), 'a') as f_valid:
 
-        valid_logs = validator.run(valid_loader)
-        valid_str = ', '.join(f'{k}: {v:.8f}' for k, v in valid_logs.items())
-        logger.info(f'Valid logs: {valid_str}')
+            best_loss = 1e5
+            epoch = starting_epoch
+            epochs_without_improvement = 0
+            best_model = os.path.join(output_dir, "best_model.pth")
+            for epoch, _ in enumerate(range(max_epochs), start=starting_epoch + 1):
+                logger.info(''.join((5 * '-', f'   Epoch: {epoch}    ', 5 * '-')))
 
-        # check for early stopping
-        current_loss = valid_logs[trainer.loss.__name__]
-        if (best_loss - current_loss) < min_delta:
-            epochs_without_improvement, best_loss = 0, current_loss
-        else:
-            epochs_without_improvement += 1
+                # trainer.to(device)
+                train_logs = trainer.run(train_loader)
+                train_str = ', '.join(f'{k}: {v:.8f}' for k, v in train_logs.items())
+                logger.info(f'Train logs: {train_str}')
+                f_train.write(train_str + "\n")
 
-        if epochs_without_improvement >= patience:
-            logger.info(f'No improvement for {patience} epochs. Stopping training early...')
-            break
-    else:
-        logger.info(f'Finished training for user-specified {max_epochs} epochs...')
+                # validator.to(device)
+                valid_logs = validator.run(valid_loader)
+                valid_str = ', '.join(f'{k}: {v:.8f}' for k, v in valid_logs.items())
+                logger.info(f'Valid logs: {valid_str}')
+                f_valid.write(valid_str + "\n")
+
+                # check for early stopping
+                # create an extra flag to decide on what metric we want to stop on
+                    # might want to use fscore, iouscore, not just loss.
+                # hythem suggested this logic -- the flag min_delta can be used to change which method is used
+                current_loss = valid_logs[trainer.loss.__name__]
+                if min_delta == None:
+                    if best_loss > current_loss:
+                        epochs_without_improvement = 0
+                        best_loss = current_loss
+                        torch.save(checkpoint, best_model)
+                    else:
+                        epochs_without_improvement += 1
+                # in the original logic, the first best loss is set to 10000 and the current loss is usually some smaller number
+                # but the first best loss can never be compared to the first current loss.  In the chunk above, 
+                # best_loss is updated to current loss so now we can look at min_delta
+                else:
+                    if epoch == starting_epoch:
+                        best_loss = current_loss
+                    else:
+                        if (best_loss - current_loss) < min_delta:
+                            epochs_without_improvement = 0
+                            best_loss = current_loss
+                            torch.save(checkpoint, best_model)
+                        else:
+                            epochs_without_improvement += 1
+                
+                        
+
+                logger.info(f"BEST LOSS: {best_loss}, CURRENT LOSS: {current_loss}, MIN_DELTA: {min_delta}, " + \
+                        f"Epochs without Improvement: {epochs_without_improvement}")
+
+                if (epoch%checkpointFreq) == 0:
+                    if create_checkpointDirectory:
+                        torch.save(checkpoint, os.path.join(checkpoint_dirs, f"Epoch_{epoch}.path"))
+                    checkpoint.update({'final_epoch': epoch,
+                                       'model_state_dict': model.state_dict(),
+                                       'optimizer_state_dict': optimizer.state_dict()})
+                    torch.save(checkpoint, output_dir.joinpath('checkpoint.pth'))
+                if epochs_without_improvement >= patience:
+                    logger.info(f'No improvement for {patience} epochs. Stopping training early...')
+                    break
+            else:
+                logger.info(f'Finished training for user-specified {max_epochs} epochs...')
 
     return epoch
