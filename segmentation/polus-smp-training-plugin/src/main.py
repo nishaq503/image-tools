@@ -36,7 +36,6 @@ if __name__ == "__main__":
 
     parser.add_argument('--modelName', dest='modelName', type=str, required=False, default='Unet',
                         help='Which model architecture to use.')
-
     parser.add_argument('--encoderBase', dest='encoderBase', type=str, required=False, default='ResNet',
                         help='Base encoder to use.')
     parser.add_argument('--encoderVariant', dest='encoderVariant', type=str, required=False, default='resnet34',
@@ -65,16 +64,13 @@ if __name__ == "__main__":
     parser.add_argument('--validPattern', dest='validPattern', type=str, required=False, default='.*',
                         help='Filename pattern for images.')
 
-    parser.add_argument('--device', dest='device', type=str, required=False, default='cpu',
+    parser.add_argument('--device', dest='device', type=str, required=False, default='cuda',
                         help='Device to run process on')
     parser.add_argument('--checkpointFrequency', dest='checkFreq', type=int, required=False, default=1,
                         help="How often to update the checkpoints")
 
     parser.add_argument('--lossName', dest='lossName', type=str, required=False, default='JaccardLoss',
                         help='Name of loss function to use.')
-    # TODO: Handle downstream consequences of removing this
-    # parser.add_argument('--metricName', dest='metricName', type=str, required=False, default='IoU',
-    #                     help='Name of performance metric to track.')
     parser.add_argument('--maxEpochs', dest='maxEpochs', type=int, required=False, default=100,
                         help='Maximum number of epochs for which to continue training the model.')
     parser.add_argument('--patience', dest='patience', type=int, required=False, default=10,
@@ -138,16 +134,16 @@ if __name__ == "__main__":
             'optimizer_state_dict': None
         }
         with open(config_path, 'w') as config_file:
-            json.dump(args.__dict__, config_file)
+            json.dump(args.__dict__, config_file, indent=4)
 
     else:
         encoder_base = None
         pretrained_model = Path(pretrained_model).resolve()
-        checkpoint = torch.load(pretrained_model.joinpath('checkpoint.pth').resolve())
+        checkpoint = torch.load(pretrained_model.joinpath('best_checkpoint.pth').resolve())
 
         if os.path.exists(config_path):
-            json_obj = open(config_path, 'r')
-            config_dict = json.load(json_obj)
+            with open(config_path, 'r') as json_obj:
+                config_dict = json.load(json_obj)
 
     # Dataset
     if images_train_dir.joinpath('images').is_dir():

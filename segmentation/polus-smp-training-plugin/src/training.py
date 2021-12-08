@@ -69,8 +69,11 @@ def initialize_model(
         encoder_weights=checkpoint['encoder_weights'],
         in_channels=1,  # all images in WIPP are single-channel.
         activation='sigmoid',  # TODO: Change for Cellpose FlowFields
-    ).to(device)
-    # model.cuda()  # TODO: This should not have broken anything
+    )
+    state_dict = checkpoint['model_state_dict']
+    if state_dict is not None:
+        model.load_state_dict(state_dict)
+    model.to(device)
 
     # noinspection PyArgumentList
     optimizer = utils.OPTIMIZERS[checkpoint['optimizer_name']](params=model.parameters())
@@ -292,27 +295,14 @@ def train_model(
         if (best_loss > current_loss) and (best_loss - current_loss >= min_delta):
             epochs_without_improvement = 0
             best_loss = current_loss
-            torch.save(trainer.model, output_dir.joinpath("best_model.pth"))
-            torch.save(checkpoint, output_dir.joinpath("best_checkpoint.pth"))
+            torch.save(trainer.model, output_dir.joinpath("model.pth"))
+            torch.save(checkpoint, output_dir.joinpath("checkpoint.pth"))
         else:
             epochs_without_improvement += 1
             if epochs_without_improvement >= patience:
                 logger.info(f'No improvement for {patience} epochs. Stopping training early...')
                 break
 
-        # in the original logic, the first best loss is set to 10000 and the current loss is usually some smaller number
-        # but the first best loss can never be compared to the first current loss.  In the chunk above,
-        # best_loss is updated to current loss so now we can look at min_delta
-        # else:
-        #     if epoch == starting_epoch:
-        #         best_loss = current_loss
-        #     else:
-        #         if (best_loss - current_loss) < min_delta:
-        #             epochs_without_improvement = 0
-        #             best_loss = current_loss
-        #             torch.save(checkpoint, best_model_path)
-        #         else:
-        #             epochs_without_improvement += 1
         logger.info(f"Epochs without Improvement: {epochs_without_improvement} of {patience}")
 
         if (epoch % checkpoint_frequency) == 0:
@@ -321,5 +311,8 @@ def train_model(
 
     else:
         logger.info(f'Finished training for user-specified {max_epochs} epochs...')
+
+    torch.save(trainer.model, checkpoints_dir.joinpath("model_final.pth"))
+    torch.save(checkpoint, checkpoints_dir.joinpath("checkpoint_final.pth"))
 
     return epoch

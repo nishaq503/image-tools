@@ -21,12 +21,12 @@ labelsValidDir=/data/input/val/labels
 validPattern="p0_y1_r{r}_c0.ome.tif"
 
 device='cuda'
-checkpointFrequency=5
+checkpointFrequency=1
 
 lossName="MCCLoss"
 #lossName="DiceLoss"
 #lossName="SoftBCEWithLogitsLoss"
-maxEpochs=5
+maxEpochs=8
 patience=2
 minDelta=1e-4
 

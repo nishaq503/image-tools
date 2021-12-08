@@ -2,12 +2,14 @@ import logging
 from pathlib import Path
 from typing import Any
 from typing import Dict
+from typing import List
 from typing import Tuple
 from typing import Union
 
 import albumentations
 import numpy
 import torch
+import torch.nn
 import torchvision
 from albumentations.core.transforms_interface import BasicTransform
 from bfio import BioReader
@@ -108,11 +110,19 @@ class PoissonTransform(BasicTransform):
         self.peak = peak
 
     def apply(self, img, **params):
-        peak = params.get('peak', 10)
-        if peak > 10:
-            raise ValueError('Peak values range is 1-10')
+        value = numpy.exp(10 - self.peak)
 
-        value = numpy.exp(10 - peak)
+        num_nans = numpy.sum(numpy.isnan(img))
+        if num_nans > 0:
+            message = f'image had {num_nans} nan values.'
+            logger.error(message)
+            raise ValueError(message)
+        num_negatives = numpy.sum(img < 0)
+        if num_negatives > 0:
+            message = f'image had {num_negatives} negative values.'
+            logger.error(message)
+            raise ValueError(message)
+
         noisy_image = numpy.random.poisson(img * value).astype(numpy.float32) / value
         return noisy_image
 
@@ -137,16 +147,16 @@ class Dataset(TorchDataset):
             self,
             labels_map: Dict[Path, Path],
             tile_map: helpers.Tiles,
-            preprocessing=None,
-            augmentations=None,
+            preprocessing: List = None,
+            augmentations: List = None,
     ):
-        """ TODO
+        """ Creates a Dataloder for torch to pull batches of images from
 
         Args:
-            labels_map:
-            tile_map:
-            preprocessing:
-            augmentations:
+            labels_map: A mapping between training images and their labels.
+            tile_map: A list of image paths and tile coordinates for that image.
+            preprocessing: A list of preprocessing steps to apply.
+            augmentations: A list of albumentations to apply.
         """
         self.labels_paths: Dict[Path, Path] = labels_map
         self.tiles: helpers.Tiles = tile_map
@@ -155,6 +165,7 @@ class Dataset(TorchDataset):
             self.preprocessing = torchvision.transforms.Compose([
                 torchvision.transforms.ToTensor(),
                 LocalNorm(window_size=257),  # TODO: Replace with Global Norm
+                torch.nn.Sigmoid(),
             ])
         else:
             raise NotImplementedError(f'Custom preprocessing is not yet implemented.')
@@ -169,7 +180,6 @@ class Dataset(TorchDataset):
         with BioReader(image_path) as reader:
             image_tile = reader[y_min:y_max, x_min:x_max, 0, 0, 0]
         image_tile = numpy.asarray(image_tile, dtype=numpy.float32)
-        # TODO: Check image shape after this line
         image_tile = self.preprocessing(image_tile).numpy().squeeze()
 
         # read and preprocess label

@@ -58,38 +58,47 @@ INPUTS = {
         'required': False,
     },
 
-    'imagesDir': {
-        'description': 'Collection containing images.',
+    'imagesTrainDir': {
+        'description': 'Collection containing images to use for training.',
         'type': 'collection',
         'required': True,
     },
-    'imagesPattern': {
-        'description': 'Filename pattern for images.',
-        'type': 'string',
-        'required': True,
-    },
-    'labelsDir': {
-        'description': 'Collection containing labels, i.e. the ground-truth, for the images.',
+    'labelsTrainDir': {
+        'description': 'Collection containing labels, i.e. the ground-truth, for the training images.',
         'type': 'collection',
         'required': True,
     },
-    'labelsPattern': {
-        'description': 'Filename pattern for labels.',
+    'trainPattern': {
+        'description': 'Filename pattern for training images and labels.',
         'type': 'string',
+        'required': False,
+    },
+
+    'imagesValidDir': {
+        'description': 'Collection containing images to use for validation.',
+        'type': 'collection',
         'required': True,
     },
-    'trainFraction': {
-        'description': 'Fraction of dataset to use for training.',
+    'labelsValidDir': {
+        'description': 'Collection containing labels, i.e. the ground-truth, for the validation images.',
+        'type': 'collection',
+        'required': True,
+    },
+    'validPattern': {
+        'description': 'Filename pattern for validation images and labels.',
+        'type': 'string',
+        'required': False,
+    },
+
+    'device': {
+        'description': 'Which device to use for the model',
+        'type': 'string',
+        'required': False,
+    },
+    'checkpointFrequency': {
+        'description': 'How often to save model checkpoints',
         'type': 'number',
-        'required': False,
-    },
-    'segmentationMode': {
-        'description': 'The kind of segmentation to perform.',
-        'type': 'enum',
-        'required': False,
-        'options': {
-            'values': ['binary', 'multilabel', 'multiclass'],
-        },
+        'required': True,
     },
 
     'lossName': {
@@ -98,21 +107,15 @@ INPUTS = {
         'required': False,
         'options': {'values': utils.LOSS_NAMES},
     },
-    'metricName': {
-        'description': 'Name of performance metric to track.',
-        'type': 'enum',
-        'required': False,
-        'options': {'values': utils.METRIC_NAMES},
-    },
     'maxEpochs': {
         'description': 'Maximum number of epochs for which to continue training the model.',
         'type': 'number',
-        'required': False,
+        'required': True,
     },
     'patience': {
         'description': 'Maximum number of epochs to wait for model to improve.',
         'type': 'number',
-        'required': False,
+        'required': True,
     },
     'minDelta': {
         'description': 'Minimum improvement in loss to reset patience.',
@@ -133,11 +136,11 @@ DEFAULTS = {
     'encoderVariant': 'resnet34',
     'encoderWeights': 'imagenet',
     'optimizerName': 'Adam',
-    'trainFraction': 0.7,
+    'trainPattern': '.*',
+    'validPattern': '.*',
+    'device': 'cuda',
     'lossName': 'JaccardLoss',
     'metricName': 'IoU',
-    'maxEpochs': 100,
-    'patience': 10,
     'minDelta': 1e-4,
 }
 
@@ -230,9 +233,9 @@ def generate_manifest(debug: bool):
         'version': f'{version}',
         'title': 'SegmentationModelsTraining',
         'description': 'Segmentation models training plugin',
-        'author': 'Gauhar Bains (gauhar.bains@labshare.org), Najib Ishaq (najib.ishaq@axleinfo.com)',
+        'author': 'Gauhar Bains (gauhar.bains@labshare.org), Najib Ishaq (najib.ishaq@axleinfo.com), Madhuri Vihani (madhuri.vihani@nih.gov)',
         'institution': 'National Center for Advancing Translational Sciences, National Institutes of Health',
-        'repository': 'https://github.com/polus-au/polus-plugins-dl',
+        'repository': 'https://github.com/PolusAI/polus-plugins/tree/dev/segmentation',
         'website': 'https://ncats.nih.gov/preclinical/core/informatics',
         'citation': '',
         'containerId': f'labshare/polus-smp-training-plugin::{version}',
