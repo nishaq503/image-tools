@@ -170,24 +170,23 @@ class Dataset(TorchDataset):
             image_tile = reader[y_min:y_max, x_min:x_max, 0, 0, 0]
         image_tile = numpy.asarray(image_tile, dtype=numpy.float32)
         # TODO: Check image shape after this line
-        image_tile = self.preprocessing(image_tile).numpy()
+        image_tile = self.preprocessing(image_tile).numpy().squeeze()
 
         # read and preprocess label
         with BioReader(label_path) as reader:
             label_tile = reader[y_min:y_max, x_min:x_max, 0, 0, 0]
-            label_tile[image_tile > 0] = 1
+            label_tile[label_tile > 0] = 1
 
         # TODO: Check if type can be converted back to bool after albumentations
         label_tile = numpy.asarray(label_tile, dtype=numpy.float32)
 
-        if self.augmentations is None:
-            image_tile = [None, ...]
-        else:
+        if self.augmentations is not None:
             transform = albumentations.Compose(self.augmentations)
 
             sample = transform(image=image_tile, mask=label_tile)
             image_tile, label_tile = sample['image'], sample['mask']
 
+        image_tile = image_tile[None, ...]
         label_tile = label_tile[None, ...]
 
         assert image_tile.shape == label_tile.shape, \

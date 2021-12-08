@@ -1,4 +1,5 @@
 import argparse
+import inspect
 import json
 import logging
 import os
@@ -57,9 +58,9 @@ if __name__ == "__main__":
     parser.add_argument('--trainPattern', dest='trainPattern', type=str, required=False, default='.*',
                         help='Filename pattern for images.')
 
-    parser.add_argument('--imagesValidDir', dest='imagesDir', type=str, required=True,
+    parser.add_argument('--imagesValidDir', dest='imagesValidDir', type=str, required=True,
                         help='Collection containing images.')
-    parser.add_argument('--labelsValidDir', dest='labelsDir', type=str, required=True,
+    parser.add_argument('--labelsValidDir', dest='labelsValidDir', type=str, required=True,
                         help='Collection containing labels, i.e. the ground-truth, for the images.')
     parser.add_argument('--validPattern', dest='validPattern', type=str, required=False, default='.*',
                         help='Filename pattern for images.')
@@ -98,7 +99,6 @@ if __name__ == "__main__":
     # Model Configuration/Compilation
     # Input Arguments
     loss_name = args.lossName
-    metric_name = args.metricName
     max_epochs = args.maxEpochs
     patience = args.patience
     min_delta = args.minDelta
@@ -106,7 +106,6 @@ if __name__ == "__main__":
     device = args.device
     checkpoint_frequency = args.checkFreq
 
-    segmentation_mode = args.segmentationMode
     batch_size = args.batchSize
 
     images_train_dir = Path(args.imagesTrainDir).resolve()
@@ -202,19 +201,15 @@ if __name__ == "__main__":
             f'Got {loss_name} instead.\n'
         )
 
-    if metric_name not in utils.METRICS:
-        error_messages.append(
-            f'metricName must be one of {list(utils.METRICS.keys())}. '
-            f'Got {metric_name} instead.'
-        )
-
     if len(error_messages) > 0:
         error_messages = ['Oh no! Something went wrong'] + error_messages + ['See the README for details.']
         error_message = '\n'.join(error_messages)
         logger.error(error_message)
         raise ValueError(error_message)
 
-    logger.info(f'Using input arguments:\n{args.__dict__}')
+    logger.info(f'Using input arguments:')
+    for arg in sorted(list(args.__dict__.keys())):
+        logger.info(f'\t{arg} = {args.__dict__[arg]}')
 
     # TODO: Add support for multiple GPUs
     device: str = device if torch.cuda.is_available() else 'cpu'
@@ -249,7 +244,15 @@ if __name__ == "__main__":
         batch_size=batch_size,
     )
 
-    loss = utils.LOSSES[loss_name](segmentation_mode)
+    loss_class = utils.LOSSES[loss_name]
+    loss_params = inspect.signature(loss_class.__init__).parameters
+    loss_kwargs = dict()
+    if 'mode' in loss_params:
+        loss_kwargs['mode'] = 'binary'
+    elif 'smooth_factor' in loss_params:
+        loss_kwargs['smooth_factor'] = 0.1
+
+    loss = loss_class(**loss_kwargs)
     loss.__name__ = loss_name
     epoch_iterators = training.initialize_epoch_iterators(
         model=model,
