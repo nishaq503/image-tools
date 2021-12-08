@@ -40,11 +40,10 @@ def get_labels_mapping(images_fp: FilePattern, labels_fp: FilePattern) -> Dict[P
     Returns:
         dictionary containing mapping between image & label names
     """
-
-    dict = {}
-    for img, lab in zip(images_fp(), labels_fp()):
-        dict[img[0]['file']] = lab[0]['file']    
-    return dict
+    return {
+        img[0]['file']: lab[0]['file']
+        for img, lab in zip(images_fp(), labels_fp())
+    }
 
     # return {
     #     file[0]['file']: labels_fp.get_matching(**{
