@@ -1,5 +1,4 @@
 import logging
-import os
 from pathlib import Path
 from typing import Any
 from typing import Dict
@@ -228,17 +227,26 @@ def initialize_epoch_iterators(
     return trainer, validator
 
 
+def _log_epoch(
+        logs: dict,
+        file_path: Path,
+):
+    logs: str = ', '.join(f'{k}: {v:.8f}' for k, v in logs.items())
+    logger.info(f'Train logs: {logs}')
+    with open(file_path, 'a') as outfile:
+        outfile.write(f"{logs}\n")
+    return
+
+
 def train_model(
         *,
         dataloaders: Tuple[TorchDataLoader, TorchDataLoader],
         epoch_iterators: Tuple[TrainEpoch, ValidEpoch],
         early_stopping: Tuple[int, int, float],
         starting_epoch: int,
+        checkpoint: Dict[str, Any],
+        checkpoint_frequency: int,
         output_dir: Path,
-        optimizer: Any,
-        checkpointFreq: int,
-        create_checkpointDirectory: bool,
-        device: Any
 ) -> int:
     """ Trains the model.
 
@@ -250,6 +258,9 @@ def train_model(
             * the maximum number of epochs to wait for the model to improve.
             * the minimum decrease in loss to consider an improvement.
         starting_epoch: The index of the epoch from which we resume training.
+        checkpoint:
+        checkpoint_frequency:
+        output_dir:
 
     Returns:
         The total number of epochs for which the model has been trained by this
@@ -259,69 +270,67 @@ def train_model(
     trainer, validator = epoch_iterators
     max_epochs, patience, min_delta = early_stopping
 
-    checkpoint_dirs = output_dir.joinpath("checkpoints")
-    checkpoint_dirs.mkdir(parents=False, exist_ok=True)
+    # TODO: Figure out how this will work with WIPP outputs
+    checkpoints_dir = output_dir.joinpath("checkpoints")
+    checkpoints_dir.mkdir(parents=False, exist_ok=True)
 
-    with open(output_dir.joinpath("trainlogs.csv"), 'a') as f_train_logs:
-        with open(output_dir.joinpath("validlogs.csv"), 'a') as f_valid_logs:
+    best_loss = float('inf')
+    epoch = starting_epoch
+    epochs_without_improvement = 0
 
-            best_loss = float('inf')
-            epoch = starting_epoch
+    for epoch, _ in enumerate(range(max_epochs), start=starting_epoch + 1):
+        logger.info(''.join((5 * '-', f'   Epoch: {epoch}    ', 5 * '-')))
+
+        # trainer.to(device)
+        train_logs = trainer.run(train_loader)
+        _log_epoch(train_logs, output_dir.joinpath("trainlogs.csv"))
+
+        # validator.to(device)
+        valid_logs = validator.run(valid_loader)
+        _log_epoch(valid_logs, output_dir.joinpath("validlogs.csv"))
+
+        checkpoint.update({
+            'final_epoch': epoch,
+            'model_state_dict': trainer.model.state_dict(),
+            'optimizer_state_dict': trainer.optimizer.state_dict()
+        })
+
+        # check for early stopping
+        # create an extra flag to decide on what metric we want to stop on
+        # might want to use fscore, iouscore, not just loss.
+        # hythem suggested this logic -- the flag min_delta can be used to change which method is used
+        current_loss = valid_logs[trainer.loss.__name__]
+        if (best_loss > current_loss) and (best_loss - current_loss >= min_delta):
             epochs_without_improvement = 0
-            best_model_path = os.path.join(output_dir, "best_model.pth")
-            for epoch, _ in enumerate(range(max_epochs), start=starting_epoch + 1):
-                logger.info(''.join((5 * '-', f'   Epoch: {epoch}    ', 5 * '-')))
+            best_loss = current_loss
+            torch.save(trainer.model, output_dir.joinpath("best_model.pth"))
+            torch.save(checkpoint, output_dir.joinpath("best_checkpoint.pth"))
+        else:
+            epochs_without_improvement += 1
+            if epochs_without_improvement >= patience:
+                logger.info(f'No improvement for {patience} epochs. Stopping training early...')
+                break
 
-                # trainer.to(device)
-                train_logs = trainer.run(train_loader)
-                train_str = ', '.join(f'{k}: {v:.8f}' for k, v in train_logs.items())
-                logger.info(f'Train logs: {train_str}')
-                f_train_logs.write(train_str + "\n")
+        # in the original logic, the first best loss is set to 10000 and the current loss is usually some smaller number
+        # but the first best loss can never be compared to the first current loss.  In the chunk above,
+        # best_loss is updated to current loss so now we can look at min_delta
+        # else:
+        #     if epoch == starting_epoch:
+        #         best_loss = current_loss
+        #     else:
+        #         if (best_loss - current_loss) < min_delta:
+        #             epochs_without_improvement = 0
+        #             best_loss = current_loss
+        #             torch.save(checkpoint, best_model_path)
+        #         else:
+        #             epochs_without_improvement += 1
+        logger.info(f"Epochs without Improvement: {epochs_without_improvement} of {patience}")
 
-                # validator.to(device)
-                valid_logs = validator.run(valid_loader)
-                valid_str = ', '.join(f'{k}: {v:.8f}' for k, v in valid_logs.items())
-                logger.info(f'Valid logs: {valid_str}')
-                f_valid_logs.write(valid_str + "\n")
+        if (epoch % checkpoint_frequency) == 0:
+            torch.save(trainer.model, checkpoints_dir.joinpath(f"model_{epoch}.pth"))
+            torch.save(checkpoint, checkpoints_dir.joinpath(f'checkpoint_{epoch}.pth'))
 
-                # check for early stopping
-                # create an extra flag to decide on what metric we want to stop on
-                # might want to use fscore, iouscore, not just loss.
-                # hythem suggested this logic -- the flag min_delta can be used to change which method is used
-                current_loss = valid_logs[trainer.loss.__name__]
-                if (best_loss > current_loss) and (best_loss - current_loss >= min_delta):
-                    epochs_without_improvement = 0
-                    best_loss = current_loss
-                    torch.save(trainer.model, best_model_path)
-                else:
-                    epochs_without_improvement += 1
-
-                # in the original logic, the first best loss is set to 10000 and the current loss is usually some smaller number
-                # but the first best loss can never be compared to the first current loss.  In the chunk above, 
-                # best_loss is updated to current loss so now we can look at min_delta
-                # else:
-                #     if epoch == starting_epoch:
-                #         best_loss = current_loss
-                #     else:
-                #         if (best_loss - current_loss) < min_delta:
-                #             epochs_without_improvement = 0
-                #             best_loss = current_loss
-                #             torch.save(checkpoint, best_model_path)
-                #         else:
-                #             epochs_without_improvement += 1
-
-                logger.info(f"Epochs without Improvement: {epochs_without_improvement} of {patience}")
-
-                if (epoch % checkpointFreq) == 0:
-                    torch.save(trainer.model, checkpoint_dirs.joinpath(f"Epoch_{epoch}.pth"))
-                    # checkpoint.update({'final_epoch': epoch,
-                    #                    'model_state_dict': trainer.model.state_dict(),
-                    #                    'optimizer_state_dict': optimizer.state_dict()})
-                    # torch.save(checkpoint, output_dir.joinpath('checkpoint.pth'))
-                if epochs_without_improvement >= patience:
-                    logger.info(f'No improvement for {patience} epochs. Stopping training early...')
-                    break
-            else:
-                logger.info(f'Finished training for user-specified {max_epochs} epochs...')
+    else:
+        logger.info(f'Finished training for user-specified {max_epochs} epochs...')
 
     return epoch

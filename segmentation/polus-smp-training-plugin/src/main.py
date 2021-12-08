@@ -345,7 +345,7 @@ if __name__ == "__main__":
         model=model,
         checkpoint = checkpoint,
         optimizer=optimizer,
-        checkpointFreq = checkFreq,
+        checkpoint_frequency= checkFreq,
         create_checkpointDirectory = create_checkpointDirectory,
         device = device
     )
