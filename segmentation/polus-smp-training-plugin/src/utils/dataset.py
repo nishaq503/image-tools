@@ -137,7 +137,6 @@ class Dataset(TorchDataset):
             self,
             labels_map: Dict[Path, Path],
             tile_map: helpers.Tiles,
-            segmentationMode: str,
             preprocessing=None,
             augmentations=None,
     ):
@@ -146,7 +145,6 @@ class Dataset(TorchDataset):
         Args:
             labels_map:
             tile_map:
-            segmentationMode:
             preprocessing:
             augmentations:
         """
@@ -156,13 +154,12 @@ class Dataset(TorchDataset):
         if preprocessing is None:
             self.preprocessing = torchvision.transforms.Compose([
                 torchvision.transforms.ToTensor(),
-                LocalNorm(window_size=257),
+                LocalNorm(window_size=257),  # TODO: Replace with Global Norm
             ])
         else:
             raise NotImplementedError(f'Custom preprocessing is not yet implemented.')
 
         self.augmentations = augmentations
-        self.segmentationMode = segmentationMode
 
     def __getitem__(self, index: int):
         image_path, y_min, y_max, x_min, x_max = self.tiles[index]
@@ -172,23 +169,26 @@ class Dataset(TorchDataset):
         with BioReader(image_path) as reader:
             image_tile = reader[y_min:y_max, x_min:x_max, 0, 0, 0]
         image_tile = numpy.asarray(image_tile, dtype=numpy.float32)
+        # TODO: Check image shape after this line
+        image_tile = self.preprocessing(image_tile).numpy()
 
         # read and preprocess label
         with BioReader(label_path) as reader:
             label_tile = reader[y_min:y_max, x_min:x_max, 0, 0, 0]
-            if self.segmentationMode == 'binary':
-                label_tile[image_tile > 0] = 1
+            label_tile[image_tile > 0] = 1
+
         # TODO: Check if type can be converted back to bool after albumentations
         label_tile = numpy.asarray(label_tile, dtype=numpy.float32)
 
-        transform = albumentations.Compose(self.augmentations)
+        if self.augmentations is None:
+            image_tile = [None, ...]
+        else:
+            transform = albumentations.Compose(self.augmentations)
 
-        sample = transform(image=image_tile, mask=label_tile)
-        image_tile, label_tile = sample['image'], sample['mask']
+            sample = transform(image=image_tile, mask=label_tile)
+            image_tile, label_tile = sample['image'], sample['mask']
 
         label_tile = label_tile[None, ...]
-        # TODO: Test if preprocerssing can be done before albumentations
-        image_tile = self.preprocessing(image_tile).numpy()
 
         assert image_tile.shape == label_tile.shape, \
             f"Image Tile {image_tile.shape} and Label Tile {label_tile.shape} do not have matching shapes"

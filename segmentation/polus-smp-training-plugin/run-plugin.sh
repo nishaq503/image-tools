@@ -12,17 +12,22 @@ encoderWeights="imagenet"
 optimizerName="Adam"
 batchSize=8
 
-imagesDir=/data/input/train/intensity
-imagesPattern="p0_y1_r{r}_c0.ome.tif"
-labelsDir=/data/input/train/labels
-labelsPattern="p0_y1_r{r}_c0.ome.tif"
-trainFraction=0.7
-segmentationMode="multilabel"
+imagesTrainDir=/data/input/train/intensity
+imagesTrainPattern="p0_y1_r{r}_c0.ome.tif"
+labelsTrainDir=/data/input/train/labels
+labelsTrainPattern="p0_y1_r{r}_c0.ome.tif"
+
+imagesValidDir=/data/input/val/intensity
+imagesValidPattern="p0_y1_r{r}_c0.ome.tif"
+labelsValidDir=/data/input/val/labels
+labelsValidPattern="p0_y1_r{r}_c0.ome.tif"
+
+device='cuda'
+checkpointFrequency=5
 
 lossName="MCCLoss"
 #lossName="DiceLoss"
 #lossName="SoftBCEWithLogitsLoss"
-metricName="IoU"
 maxEpochs=5
 patience=2
 minDelta=1e-4
@@ -45,14 +50,17 @@ docker run --mount type=bind,source="${data_path}",target=/data \
             --encoderWeights ${encoderWeights} \
             --optimizerName ${optimizerName} \
             --batchSize ${batchSize} \
-            --imagesDir ${imagesDir} \
-            --imagesPattern ${imagesPattern} \
-            --labelsDir ${labelsDir} \
-            --labelsPattern ${labelsPattern} \
-            --trainFraction ${trainFraction} \
-            --segmentationMode ${segmentationMode} \
+            --imagesTrainDir ${imagesTrainDir} \
+            --imagesTrainPattern ${imagesTrainPattern} \
+            --labelsTrainDir ${labelsTrainDir} \
+            --labelsTrainPattern ${labelsTrainPattern} \
+            --imagesValidDir ${imagesValidDir} \
+            --imagesValidPattern ${imagesValidPattern} \
+            --labelsValidDir ${labelsValidDir} \
+            --labelsValidPattern ${labelsValidPattern} \
+            --device ${device} \
+            --checkpointFrequency ${checkpointFrequency} \
             --lossName ${lossName} \
-            --metricName ${metricName} \
             --maxEpochs ${maxEpochs} \
             --patience ${patience} \
             --minDelta ${minDelta} \

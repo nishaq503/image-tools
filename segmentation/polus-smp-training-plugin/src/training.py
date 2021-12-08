@@ -84,58 +84,74 @@ def initialize_model(
     return model, optimizer, starting_epoch
 
 
-def configure_augmentations(albumentations: list):
+def configure_augmentations():
     # TODO: For now, we are just using the defaults. Needs some work on WIPP to be able to allow users to easily set albumentations.
-    transform: list = []
+    # transform: list = []
 
-    albu_values = {
-        "HorizontalFlip": 0.5,
-        "ShiftScaleRotate": 1,
-        "GaussianNoise": 0.2,
-        "Perspective": 0.5,
-        "RandomBrightnessContrast": 1,
-        "RandomGamma": 1,
-        "Sharpen": 1,
-        "Blur": 1,
-        "MotionBlur": 1
-    }
+    # albu_values = {
+    #     "HorizontalFlip": 0.5,
+    #     "ShiftScaleRotate": 1,
+    #     "GaussianNoise": 0.2,
+    #     "Perspective": 0.5,
+    #     "RandomBrightnessContrast": 1,
+    #     "RandomGamma": 1,
+    #     "Sharpen": 1,
+    #     "Blur": 1,
+    #     "MotionBlur": 1
+    # }
+    #
+    # albu_dictionary = {
+    #     "HorizontalFlip": albu.HorizontalFlip(p=albu_values["HorizontalFlip"]),
+    #     "ShiftScaleRotate": albu.ShiftScaleRotate(
+    #         scale_limit=0.5,
+    #         rotate_limit=0,
+    #         shift_limit=0.1,
+    #         p=1,
+    #         border_mode=0,
+    #     ),
+    #     "PadIfNeeded": albu.PadIfNeeded(min_height=256, min_width=256, always_apply=True, border_mode=0),
+    #     "RandomCrop": albu.RandomCrop(height=256, width=256, always_apply=True),
+    #     "GaussianNoise": albu.GaussNoise(p=albu_values["GaussianNoise"]),
+    #     "Perspective": albu.Perspective(p=albu_values["Perspective"]),
+    #     "RandomBrightnessContrast": albu.RandomBrightnessContrast(p=albu_values["RandomBrightnessContrast"]),
+    #     "RandomGamma": albu.RandomGamma(p=albu_values["RandomGamma"]),
+    #     "Sharpen": albu.Sharpen(p=albu_values["Sharpen"]),
+    #     "Blur": albu.Blur(blur_limit=3, p=albu_values["Blur"]),
+    #     "MotionBlur": albu.MotionBlur(blur_limit=3, p=albu_values["MotionBlur"])
+    # }
+    #
+    # for albu_transform in albumentations:
+    #     if albu_transform in albu_dictionary.keys():
+    #         transform.append(albu_dictionary[albu_transform])
 
-    albu_dictionary = {
-        "HorizontalFlip": albu.HorizontalFlip(p=albu_values["HorizontalFlip"]),
-        "ShiftScaleRotate": albu.ShiftScaleRotate(scale_limit=0.5, rotate_limit=0,
-                                                  shift_limit=0.1, p=albu_values["ShiftScaleRotate"], border_mode=0),
-        "PadIfNeeded": albu.PadIfNeeded(min_height=256, min_width=256, always_apply=True, border_mode=0),
-        "RandomCrop": albu.RandomCrop(height=256, width=256, always_apply=True),
-        "GaussianNoise": albu.GaussNoise(p=albu_values["GaussianNoise"]),
-        "Perspective": albu.Perspective(p=albu_values["Perspective"]),
-        "RandomBrightnessContrast": albu.RandomBrightnessContrast(p=albu_values["RandomBrightnessContrast"]),
-        "RandomGamma": albu.RandomGamma(p=albu_values["RandomGamma"]),
-        "Sharpen": albu.Sharpen(p=albu_values["Sharpen"]),
-        "Blur": albu.Blur(blur_limit=3, p=albu_values["Blur"]),
-        "MotionBlur": albu.MotionBlur(blur_limit=3, p=albu_values["MotionBlur"])
-    }
+    transforms = [
+        albu.RandomCrop(height=256, width=256),
+        utils.PoissonTransform(peak=10, p=0.3),
+        albu.RandomBrightnessContrast(brightness_limit=0.8, contrast_limit=0.4, p=0.2),
+        albu.ShiftScaleRotate(scale_limit=0.5, rotate_limit=0, shift_limit=0, p=0.5, border_mode=0),
+        albu.PadIfNeeded(min_height=256, min_width=256, always_apply=True, border_mode=0),
+        albu.OneOf(
+            [
+                albu.MotionBlur(blur_limit=15, p=0.1),
+                albu.Blur(blur_limit=15, p=0.1),
+                albu.MedianBlur(blur_limit=3, p=.1)
+            ],
+            p=0.2,
+        ),
+    ]
 
-    for albu_transform in albumentations:
-        if albu_transform in albu_dictionary.keys():
-            transform.append(albu_dictionary[albu_transform])
-
-    return transform
+    return transforms
 
 
-def initialize_dataloaders(
+def initialize_dataloader(
         *,
         images_dir: Path,
         images_pattern: str,
         labels_dir: Path,
         labels_pattern: str,
-        train_fraction: float,
         batch_size: int,
-        train_albumentations: list,
-        valid_albumentations: list,
-        segmentationMode: str,
-) -> Tuple[TorchDataLoader, TorchDataLoader]:
-    """ Initializes data-loaders for training and validation from the input
-        image and label collections.
+) -> TorchDataLoader:
+    """ Initializes a data-loaders for training or validation.
 
     TODO: Add docs
 
@@ -144,54 +160,29 @@ def initialize_dataloaders(
         images_pattern: File-pattern for input images.
         labels_dir: Labels collection for the input images.
         labels_pattern: File-pattern for the labels.
-        train_fraction: Fraction of input images to use for training. Must be a
-            float between 0 and 1.
-        batch_size: Number of tiles per batch to use for training.
-        train_albumentations:
-        valid_albumentations:
-        segmentationMode:
+        batch_size: Number of tiles per batch to use.
 
     Returns:
-        A 2-tuple of the data-loaders for training and validation.
+        A data-loader for training or validation.
     """
-    logger.info('Initializing dataloaders...')
-
-    label_paths = utils.get_labels_mapping(
+    labels_map = utils.get_labels_mapping(
         images_fp=FilePattern(images_dir, images_pattern),
         labels_fp=FilePattern(labels_dir, labels_pattern),
     )
 
-    train_paths, valid_paths = train_test_split(
-        list(label_paths.keys()),
-        train_size=train_fraction,
-        shuffle=True,
-    )
-
-    train_augmentations = configure_augmentations(train_albumentations)
-    valid_augmentations = configure_augmentations(valid_albumentations)
-
     train_dataset = utils.Dataset(
-        labels_map={k: label_paths[k] for k in train_paths},
-        tile_map=utils.get_tiles_mapping(train_paths),
-        segmentationMode=segmentationMode,
-        augmentations=train_augmentations,
-    )
-    valid_dataset = utils.Dataset(
-        labels_map={k: label_paths[k] for k in valid_paths},
-        tile_map=utils.get_tiles_mapping(valid_paths),
-        augmentations=valid_augmentations,
-        segmentationMode=segmentationMode,
+        labels_map=labels_map,
+        tile_map=utils.get_tiles_mapping(list(labels_map.keys())),
+        augmentations=configure_augmentations(),
     )
 
     # TODO: Does dataset need to be transferred to the device?
     # train_dataset.to(device)
-    # valid_dataset.to(device)
 
     # TODO: Look into this more
     train_loader = TorchDataLoader(dataset=train_dataset, batch_size=batch_size)
-    valid_loader = TorchDataLoader(dataset=valid_dataset, batch_size=batch_size)
 
-    return train_loader, valid_loader
+    return train_loader
 
 
 def initialize_epoch_iterators(
@@ -217,6 +208,7 @@ def initialize_epoch_iterators(
     """
     logger.info('Initializing Epoch Iterators...')
 
+    # TODO:
     # metrics=[metric, smp.utils.metrics.Fscore(),
     #          smp.utils.metrics.Accuracy(), smp.utils.metrics.Recall(), smp.utils.metrics.Precision()],
 
