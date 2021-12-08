@@ -13,7 +13,6 @@ from segmentation_models_pytorch.base import SegmentationModel
 from segmentation_models_pytorch.utils.base import Metric
 from segmentation_models_pytorch.utils.train import TrainEpoch
 from segmentation_models_pytorch.utils.train import ValidEpoch
-from sklearn.model_selection import train_test_split
 # noinspection PyProtectedMember
 from torch.nn.modules.loss import _Loss as TorchLoss
 from torch.optim import Optimizer
@@ -146,9 +145,8 @@ def configure_augmentations():
 def initialize_dataloader(
         *,
         images_dir: Path,
-        images_pattern: str,
         labels_dir: Path,
-        labels_pattern: str,
+        pattern: str,
         batch_size: int,
 ) -> TorchDataLoader:
     """ Initializes a data-loaders for training or validation.
@@ -157,17 +155,16 @@ def initialize_dataloader(
 
     Args:
         images_dir: Input Image collection.
-        images_pattern: File-pattern for input images.
         labels_dir: Labels collection for the input images.
-        labels_pattern: File-pattern for the labels.
+        pattern: File-pattern for the images and labels.
         batch_size: Number of tiles per batch to use.
 
     Returns:
         A data-loader for training or validation.
     """
     labels_map = utils.get_labels_mapping(
-        images_fp=FilePattern(images_dir, images_pattern),
-        labels_fp=FilePattern(labels_dir, labels_pattern),
+        images_fp=FilePattern(images_dir, pattern),
+        labels_fp=FilePattern(labels_dir, pattern),
     )
 
     train_dataset = utils.Dataset(

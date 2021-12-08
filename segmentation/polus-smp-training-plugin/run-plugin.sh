@@ -13,14 +13,12 @@ optimizerName="Adam"
 batchSize=8
 
 imagesTrainDir=/data/input/train/intensity
-imagesTrainPattern="p0_y1_r{r}_c0.ome.tif"
 labelsTrainDir=/data/input/train/labels
-labelsTrainPattern="p0_y1_r{r}_c0.ome.tif"
+trainPattern="p0_y1_r{r}_c0.ome.tif"
 
 imagesValidDir=/data/input/val/intensity
-imagesValidPattern="p0_y1_r{r}_c0.ome.tif"
 labelsValidDir=/data/input/val/labels
-labelsValidPattern="p0_y1_r{r}_c0.ome.tif"
+validPattern="p0_y1_r{r}_c0.ome.tif"
 
 device='cuda'
 checkpointFrequency=5
@@ -51,13 +49,11 @@ docker run --mount type=bind,source="${data_path}",target=/data \
             --optimizerName ${optimizerName} \
             --batchSize ${batchSize} \
             --imagesTrainDir ${imagesTrainDir} \
-            --imagesTrainPattern ${imagesTrainPattern} \
             --labelsTrainDir ${labelsTrainDir} \
-            --labelsTrainPattern ${labelsTrainPattern} \
+            --trainPattern ${trainPattern} \
             --imagesValidDir ${imagesValidDir} \
-            --imagesValidPattern ${imagesValidPattern} \
             --labelsValidDir ${labelsValidDir} \
-            --labelsValidPattern ${labelsValidPattern} \
+            --validPattern ${validPattern} \
             --device ${device} \
             --checkpointFrequency ${checkpointFrequency} \
             --lossName ${lossName} \

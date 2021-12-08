@@ -111,13 +111,11 @@ if __name__ == "__main__":
 
     images_train_dir = Path(args.imagesTrainDir).resolve()
     labels_train_dir = Path(args.labelsTrainDir).resolve()
-    images_train_pattern: str = args.imagesTrainPattern
-    labels_train_pattern: str = args.labelsTrainPattern
+    train_pattern: str = args.trainPattern
 
     images_valid_dir = Path(args.imagesValidDir).resolve()
     labels_valid_dir = Path(args.labelsValidDir).resolve()
-    images_valid_pattern: str = args.imagesValidPattern
-    labels_valid_pattern: str = args.labelsValidPattern
+    valid_pattern: str = args.validPattern
 
     config_path = os.path.join(output_dir, "config.json")
 
@@ -240,16 +238,14 @@ if __name__ == "__main__":
 
     train_loader = training.initialize_dataloader(
         images_dir=images_train_dir,
-        images_pattern=images_train_pattern,
         labels_dir=labels_train_dir,
-        labels_pattern=labels_train_pattern,
+        pattern=train_pattern,
         batch_size=batch_size,
     )
     valid_loader = training.initialize_dataloader(
         images_dir=images_valid_dir,
-        images_pattern=images_valid_pattern,
         labels_dir=labels_valid_dir,
-        labels_pattern=labels_valid_pattern,
+        pattern=valid_pattern,
         batch_size=batch_size,
     )
 
