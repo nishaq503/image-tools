@@ -311,8 +311,8 @@ if __name__ == "__main__":
         labels_pattern=labels_pattern,
         train_fraction=train_fraction,
         batch_size=batch_size,
-        trainAlbumentations = trainAlbumentations,
-        validAlbumentations = validAlbumentations,
+        train_albumentations= trainAlbumentations,
+        valid_albumentations= validAlbumentations,
         segmentationMode = segmentation_mode,
         device=device
     )
