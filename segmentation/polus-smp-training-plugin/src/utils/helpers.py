@@ -40,13 +40,8 @@ def get_labels_mapping(images_fp: FilePattern, labels_fp: FilePattern) -> Dict[P
     Returns:
         dictionary containing mapping between image & label names
     """
-
-    dict = {}
-    for img, lab in zip(images_fp(), labels_fp()):
-        dict[img[0]['file']] = lab[0]['file']    
-    return dict
-
-    # return {
+    # TODO: Get this working again
+    # labels_map = {
     #     file[0]['file']: labels_fp.get_matching(**{
     #         k.upper(): v
     #         for k, v in file[0].items()
@@ -54,6 +49,13 @@ def get_labels_mapping(images_fp: FilePattern, labels_fp: FilePattern) -> Dict[P
     #     })[0]['file']
     #     for file in images_fp()
     # }
+    labels_map: Dict[Path, Path] = {
+        image[0]['file']: label[0]['file']
+        for image, label in zip(images_fp(), labels_fp())
+    }
+    for k, v in labels_map.items():
+        assert k.name == v.name, f'image and label had different names: {k} vs {v}'
+    return labels_map
 
 
 def iter_tiles_2d(image_path: Path) -> Generator[Tuple[Path, int, int, int, int], None, None]:

@@ -23,7 +23,6 @@ __all__ = [
     'ENCODER_WEIGHTS',
     'OPTIMIZER_NAMES',
     'LOSS_NAMES',
-    'METRIC_NAMES',
 ]
 
 MODELS: Dict[str, Type[SegmentationModel]] = {
@@ -221,7 +220,7 @@ LOSSES: Dict[str, Type[TorchLoss]] = {
     'LovaszLoss': smp.losses.LovaszLoss,
     'SoftBCEWithLogitsLoss': smp.losses.SoftBCEWithLogitsLoss,
     'SoftCrossEntropyLoss': smp.losses.SoftCrossEntropyLoss,
-    'MCCLoss': smp.losses.MCCLoss
+    'MCCLoss': smp.losses.MCCLoss,
 }
 
 LOSS_NAMES: List[str] = list(LOSSES.keys())
@@ -233,5 +232,3 @@ METRICS: Dict[str, Type[Metric]] = {
     'Recall': smp.utils.metrics.Recall,
     'Precision': smp.utils.metrics.Precision,
 }
-
-METRIC_NAMES: List[str] = list(METRICS.keys())

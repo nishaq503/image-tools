@@ -5,7 +5,11 @@ The toolkit is a high level API consisting of 9 models architectures for binary,
 There are 113 available encoders with pre-trained weights from 8 datasets.
 Several combinations of these encoders and weights can be used as backbones for these architectures.
 You may also choose an encoder and start training afresh with randomly initialized weights.
+<<<<<<< HEAD
   
+=======
+
+>>>>>>> najibsmp/train-smp-v2
 Contact [Najib Ishaq](mailto:najib.ishaq@axleinfo.com), [Gauhar Bains](mailto:gauhar.bains@labshare.org) or [Nick Schaub](mailto:nick.schaub@labshare.org) for more information.
 For more information on WIPP, visit the [official WIPP page](https://isg.nist.gov/deepzoomweb/software/wipp).
 
@@ -57,6 +61,11 @@ This depends on the kind of labels you have the number of classes of objects bei
 Finally, specify what fraction of the input images are to be used for training vs validation using the `--trainFraction` parameter.
 We default to `0.7`.
 
+<<<<<<< HEAD
+=======
+**TODO:** Add input params for distinct validation set instead of splitting training set.
+
+>>>>>>> najibsmp/train-smp-v2
 ### Training the Model
 
 Specify the loss function and the metric with `--lossName` and `--metricName` respectively.
@@ -74,13 +83,23 @@ Paste the contents of `plugin.json` into the pop-up window and submit.
 
 ## Options
 
+<<<<<<< HEAD
 This plugin takes 14 input arguments and 1 output argument:
+=======
+This plugin takes 18 input arguments and 1 output argument:
+>>>>>>> najibsmp/train-smp-v2
 
 | Name          | Description             | I/O    | Type   | Required | Default |
 |---------------|-------------------------|--------|--------|----------|---------|
 | `--pretrainedModel` | Path to a model that was previously trained with this plugin. | Input | genericData | No | - |
 | `--modelName` | Model architecture to use. | Input | enum | No | Unet |
+<<<<<<< HEAD
 | `--encoderBaseVariantWeights` | The name of the encoder, the specific variant, and the pretrained weights to use. | Input | enum | No | ResNet,resnet34,imagenet |
+=======
+| `--encoderBase` | The name of the encoder, the specific variant, and the pretrained weights to use. | Input | enum | No | ResNet |
+| `--encoderVariant` | The name of the encoder, the specific variant, and the pretrained weights to use. | Input | enum | No | resnet34 |
+| `--encoderWeights` | The name of the encoder, the specific variant, and the pretrained weights to use. | Input | enum | No | imagenet |
+>>>>>>> najibsmp/train-smp-v2
 | `--optimizerName` | Name of optimization algorithm to use for training the model. | Input | enum | No | Adam |
 | `--batchSize` | batch size for training | Input | int | No | - |
 | `--imagesDir` | Collection containing input images. | Input | collection | Yes | - |
