@@ -5,8 +5,10 @@ from typing import Dict
 from typing import Generator
 from typing import List
 from typing import Tuple
+from tqdm import tqdm
 
 import torch
+import numpy
 from bfio import BioReader
 from filepattern import FilePattern
 
@@ -49,13 +51,43 @@ def get_labels_mapping(images_fp: FilePattern, labels_fp: FilePattern) -> Dict[P
     #     })[0]['file']
     #     for file in images_fp()
     # }
-    labels_map: Dict[Path, Path] = {
-        image[0]['file']: label[0]['file']
-        for image, label in zip(images_fp(), labels_fp())
-    }
-    for k, v in labels_map.items():
-        assert k.name == v.name, f'image and label had different names: {k} vs {v}'
-    return labels_map
+    # image_array = numpy.zeros((len(images_fp())))
+    image_list = []
+    label_list = []
+    counter = 0
+    for image, label in tqdm(zip(images_fp(), labels_fp())):
+        
+        image_file = image[0]['file']
+        label_file = label[0]['file']
+        assert os.path.basename(image_file) == os.path.basename(label_file)
+        
+        with BioReader(image[0]['file']) as br_image:
+            br_image_shape = br_image.shape
+            br_image = br_image[:].reshape(br_image_shape[:2])
+            image_list.append(br_image)
+        with BioReader(label[0]['file']) as br_label:
+            br_label_shape = br_label.shape
+            br_label = br_label[:].reshape(br_label_shape[:2])
+            label_list.append(br_label)
+            
+        assert br_image_shape == br_label_shape
+        
+        counter += 1
+        if counter > 63:
+            break        
+
+    image_array = numpy.stack(image_list, axis=0)
+    label_array = numpy.stack(label_list, axis=0)
+
+    # image_array = numpy.reshape(image_array, (1, shp[0], shp[1], shp[2]))
+    # label_array = numpy.reshape(label_array, (1, shp[0], shp[1], shp[2]))
+    # labels_map: Dict[Path, Path] = {
+    #     image[0]['file']: label[0]['file']
+    #     for image, label in zip(images_fp(), labels_fp())
+    # }
+    # for k, v in labels_map.items():
+    #     assert k.name == v.name, f'image and label had different names: {k} vs {v}'
+    return image_array, label_array
 
 
 def iter_tiles_2d(image_path: Path) -> Generator[Tuple[Path, int, int, int, int], None, None]:

@@ -145,64 +145,21 @@ class PoissonTransform(BasicTransform):
 class Dataset(TorchDataset):
     def __init__(
             self,
-            labels_map: Dict[Path, Path],
-            tile_map: helpers.Tiles,
-            preprocessing: List = None,
-            augmentations: List = None,
+            images: numpy.ndarray,
+            labels: numpy.ndarray,
     ):
-        """ Creates a Dataloder for torch to pull batches of images from
 
-        Args:
-            labels_map: A mapping between training images and their labels.
-            tile_map: A list of image paths and tile coordinates for that image.
-            preprocessing: A list of preprocessing steps to apply.
-            augmentations: A list of albumentations to apply.
-        """
-        self.labels_paths: Dict[Path, Path] = labels_map
-        self.tiles: helpers.Tiles = tile_map
-
-        if preprocessing is None:
-            self.preprocessing = torchvision.transforms.Compose([
-                torchvision.transforms.ToTensor(),
-                LocalNorm(window_size=257),  # TODO: Replace with Global Norm
-                torch.nn.Sigmoid(),
-            ])
-        else:
-            raise NotImplementedError(f'Custom preprocessing is not yet implemented.')
-
-        self.augmentations = augmentations
+        self.images, self.labels = images, labels
 
     def __getitem__(self, index: int):
-        image_path, y_min, y_max, x_min, x_max = self.tiles[index]
-        label_path = self.labels_paths[image_path]
 
-        # read and preprocess image
-        with BioReader(image_path) as reader:
-            image_tile = reader[y_min:y_max, x_min:x_max, 0, 0, 0]
-        image_tile = numpy.asarray(image_tile, dtype=numpy.float32)
-        image_tile = self.preprocessing(image_tile).numpy().squeeze()
-
-        # read and preprocess label
-        with BioReader(label_path) as reader:
-            label_tile = reader[y_min:y_max, x_min:x_max, 0, 0, 0]
-            label_tile[label_tile > 0] = 1
-
-        # TODO: Check if type can be converted back to bool after albumentations
-        label_tile = numpy.asarray(label_tile, dtype=numpy.float32)
-
-        if self.augmentations is not None:
-            transform = albumentations.Compose(self.augmentations)
-
-            sample = transform(image=image_tile, mask=label_tile)
-            image_tile, label_tile = sample['image'], sample['mask']
+        image_tile = self.images[index].astype(numpy.float32)
+        label_tile = self.labels[index].astype(numpy.float32)
 
         image_tile = image_tile[None, ...]
         label_tile = label_tile[None, ...]
 
-        assert image_tile.shape == label_tile.shape, \
-            f"Image Tile {image_tile.shape} and Label Tile {label_tile.shape} do not have matching shapes"
-
         return image_tile, label_tile
 
     def __len__(self):
-        return len(self.tiles)
+        return len(self.images)

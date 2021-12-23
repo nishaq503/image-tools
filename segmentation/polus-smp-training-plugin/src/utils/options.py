@@ -226,9 +226,9 @@ LOSSES: Dict[str, Type[TorchLoss]] = {
 LOSS_NAMES: List[str] = list(LOSSES.keys())
 
 METRICS: Dict[str, Type[Metric]] = {
-    'IoU': smp.utils.metrics.IoU,
-    'Fscore': smp.utils.metrics.Fscore,
-    'Accuracy': smp.utils.metrics.Accuracy,
-    'Recall': smp.utils.metrics.Recall,
-    'Precision': smp.utils.metrics.Precision,
+    'iou_score': smp.utils.metrics.IoU,
+    'fscore': smp.utils.metrics.Fscore,
+    'accuracy': smp.utils.metrics.Accuracy,
+    'recall': smp.utils.metrics.Recall,
+    'precision': smp.utils.metrics.Precision,
 }

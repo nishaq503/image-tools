@@ -14,6 +14,9 @@ import torch
 import training
 import utils
 
+os.environ["CUDA_VISIBLE_DEVICES"] = "6"
+os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
+
 logging.basicConfig(
     format='%(asctime)s - %(name)-8s - %(levelname)-8s - %(message)s',
     datefmt='%d-%b-%y %H:%M:%S',
@@ -209,7 +212,7 @@ if __name__ == "__main__":
 
     # TODO: Add support for multiple GPUs
     device: str = device if torch.cuda.is_available() else 'cpu'
-    device: torch.device = torch.device(device if 'cuda' in device else 'cpu')
+    device: torch.device = torch.device(device if "cuda" in device else 'cpu')
     logger.info(f'Using device: {device}...')
 
     model, optimizer, starting_epoch = training.initialize_model(checkpoint, device)
@@ -233,12 +236,13 @@ if __name__ == "__main__":
         pattern=train_pattern,
         batch_size=batch_size,
     )
-    valid_loader = training.initialize_dataloader(
-        images_dir=images_valid_dir,
-        labels_dir=labels_valid_dir,
-        pattern=valid_pattern,
-        batch_size=batch_size,
-    )
+    # valid_loader = training.initialize_dataloader(
+    #     images_dir=images_valid_dir,
+    #     labels_dir=labels_valid_dir,
+    #     pattern=valid_pattern,
+    #     batch_size=batch_size,
+    # )
+    valid_loader = None
 
     loss_class = utils.LOSSES[loss_name]
     loss_params = inspect.signature(loss_class.__init__).parameters
