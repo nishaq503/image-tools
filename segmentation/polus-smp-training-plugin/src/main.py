@@ -7,15 +7,13 @@ from pathlib import Path
 from typing import Any
 from typing import Dict
 from typing import Optional
+from xmlrpc.client import boolean
 
 import numpy
 import torch
 
 import training
 import utils
-
-os.environ["CUDA_VISIBLE_DEVICES"] = "6"
-os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 
 logging.basicConfig(
     format='%(asctime)s - %(name)-8s - %(levelname)-8s - %(message)s',
@@ -67,9 +65,9 @@ if __name__ == "__main__":
     parser.add_argument('--validPattern', dest='validPattern', type=str, required=False, default='.*',
                         help='Filename pattern for images.')
 
-    parser.add_argument('--device', dest='device', type=str, required=False, default='cuda',
+    parser.add_argument('--device', dest='device', type=str, required=False, default='cuda:0',
                         help='Device to run process on')
-    parser.add_argument('--checkpointFrequency', dest='checkFreq', type=int, required=False, default=1,
+    parser.add_argument('--checkpointFrequency', dest='checkFreq', type=int, required=False,
                         help="How often to update the checkpoints")
 
     parser.add_argument('--lossName', dest='lossName', type=str, required=False, default='JaccardLoss',
@@ -80,6 +78,9 @@ if __name__ == "__main__":
                         help='Maximum number of epochs to wait for model to improve.')
     parser.add_argument('--minDelta', dest='minDelta', type=float, required=False,
                         help='Minimum improvement in loss to reset patience.')
+    
+    parser.add_argument('--tensorboardProfiler', dest='tensorboardProfiler', type=bool, required=False, default=False,
+                        help = "Generate a profiler using Tensorboard?")
 
     parser.add_argument('--outputDir', dest='outputDir', type=str, required=True,
                         help='Location where the model and the final checkpoint will be saved.')
@@ -90,6 +91,7 @@ if __name__ == "__main__":
     # Location to save model and checkpoint
     output_dir = Path(args.outputDir).resolve()
     assert output_dir.exists()
+    tensorboard_profiler = args.tensorboardProfiler
 
     """ Argument parsing """
     logger.info("Parsing arguments...")
@@ -235,14 +237,15 @@ if __name__ == "__main__":
         labels_dir=labels_train_dir,
         pattern=train_pattern,
         batch_size=batch_size,
+        type = "training"
     )
-    # valid_loader = training.initialize_dataloader(
-    #     images_dir=images_valid_dir,
-    #     labels_dir=labels_valid_dir,
-    #     pattern=valid_pattern,
-    #     batch_size=batch_size,
-    # )
-    valid_loader = None
+    valid_loader = training.initialize_dataloader(
+        images_dir=images_valid_dir,
+        labels_dir=labels_valid_dir,
+        pattern=valid_pattern,
+        batch_size=batch_size,
+        type = "validation"
+    )
 
     loss_class = utils.LOSSES[loss_name]
     loss_params = inspect.signature(loss_class.__init__).parameters
@@ -277,4 +280,5 @@ if __name__ == "__main__":
         output_dir=output_dir,
         checkpoint=checkpoint,
         checkpoint_frequency=checkpoint_frequency,
+        tensorboard_profiler=tensorboard_profiler
     )

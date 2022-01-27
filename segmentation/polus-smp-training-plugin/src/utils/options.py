@@ -68,7 +68,7 @@ ENCODERS: Dict[str, Dict[str, List[str]]] = {
         'timm-resnest50d_4s2x40d': ['imagenet'],
         'timm-resnest50d_1s4x24d': ['imagenet'],
     },
-    'Res2Ne(X)t': {
+    'Res2NeXt': {
         'timm-res2net50_26w_4s': ['imagenet'],
         'timm-res2net101_26w_4s': ['imagenet'],
         'timm-res2net50_26w_6s': ['imagenet'],
@@ -77,7 +77,7 @@ ENCODERS: Dict[str, Dict[str, List[str]]] = {
         'timm-res2net50_14w_8s': ['imagenet'],
         'timm-res2next50': ['imagenet'],
     },
-    'RegNet(x/y)': {
+    'RegNetx/y': {
         'timm-regnetx_002': ['imagenet'],
         'timm-regnetx_004': ['imagenet'],
         'timm-regnetx_006': ['imagenet'],
@@ -116,7 +116,7 @@ ENCODERS: Dict[str, Dict[str, List[str]]] = {
         'se_resnext50_32x4d': ['imagenet'],
         'se_resnext101_32x4d': ['imagenet'],
     },
-    'SK-ResNe(X)t': {
+    'SK-ResNeXt': {
         'timm-skresnet18': ['imagenet'],
         'timm-skresnet34': ['imagenet'],
         'timm-skresnext50_32x4d': ['imagenet'],

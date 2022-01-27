@@ -147,17 +147,43 @@ class Dataset(TorchDataset):
             self,
             images: numpy.ndarray,
             labels: numpy.ndarray,
+            augmentations: list = None,
+            preprocessing: list = None
     ):
 
         self.images, self.labels = images, labels
+        
+        self.augmentations = augmentations
+
+        if preprocessing:
+            self.preprocessing = preprocessing
+        else:
+            self.preprocessing = torchvision.transforms.Compose([
+                torchvision.transforms.ToTensor(),
+                LocalNorm(window_size=257),  # TODO: Replace with Global Norm
+                torch.nn.Sigmoid(),
+            ]) 
 
     def __getitem__(self, index: int):
 
         image_tile = self.images[index].astype(numpy.float32)
         label_tile = self.labels[index].astype(numpy.float32)
 
+        if self.preprocessing is not None:
+            image_tile = self.preprocessing(image_tile).numpy().squeeze()
+
+        if self.augmentations is not None:
+            transform = albumentations.Compose(self.augmentations)
+            
+            sample = transform(image=image_tile, mask=label_tile)
+            image_tile, label_tile = sample['image'], sample['mask']
+            
+
         image_tile = image_tile[None, ...]
         label_tile = label_tile[None, ...]
+
+        assert image_tile.shape == label_tile.shape, \
+            f"Image Tile {image_tile.shape} and Label Tile {label_tile.shape} do not have matching shapes"
 
         return image_tile, label_tile
 
