@@ -1,5 +1,5 @@
 [package]
-authors = ["Najib Ishaq <najib.ishaq@axleinfo.com>"]
+authors = ["Najib Ishaq <najib.ishaq@nih.gov>"]
 name = "ftl-rust"
 version = "0.1.0"
 edition = "2018"
@@ -8,17 +8,25 @@ edition = "2018"
 name = "ftl_rust"
 crate-type = ["cdylib", "rlib"]
 
+# Remove after profiling
+[profile.release]
+debug = true
+
 [dependencies]
-pyo3 = { version = "0.14", features = ["extension-module"] }
-rayon = "1.0"
-ndarray = { version = "0.15", features = ["rayon"] }
-numpy = "0.14"
+pyo3 = { version = "0.18.0", features = ["extension-module"] }
+# rayon = "1.6.1"
+ndarray = { version = "0.15" }  # , features = ["rayon"] 
+numpy = "0.18.0"
 
 [dev-dependencies]
-memmap2 = "0.3"
+memmap2 = "0.5.8"
 ndarray-npy = "0.8"
-criterion =  { version = "^0.3", features = ["html_reports"] }
+criterion =  { version = "0.4.0", features = ["html_reports"] }
 
 [[bench]]
-name = "ftl_rust"
+name = "large"
+harness = false
+
+[[example]]
+name = "large"
 harness = false

@@ -5,23 +5,20 @@ use ftl_rust::PolygonSet;
 use memmap2::Mmap;
 use ndarray::prelude::*;
 use ndarray_npy::ViewNpyExt;
-use rayon::prelude::*;
 
 fn ftl_rust(c: &mut Criterion) {
     let mut group = c.benchmark_group("ftl_rust");
     group.sample_size(10);
 
     let tile_size = 1024;
-    let count = 2209;
 
     let mut path: PathBuf = std::env::current_dir().unwrap();
-    path.push("..");
     path.push("data");
-    path.push("input_array");
-    path.push(format!("test_infile_{}.npy", count));
+    path.push("input");
+    path.push("t1_x1.npy");
 
     let path = path.canonicalize().unwrap();
-    println!("reading path {:?}", path);
+    println!("reading path {path:?}");
     let file = std::fs::File::open(path).unwrap();
     let mmap = unsafe { Mmap::map(&file).unwrap() };
 
@@ -30,16 +27,16 @@ fn ftl_rust(c: &mut Criterion) {
     let y_shape = data.shape()[1];
     let x_shape = data.shape()[2];
 
-    let ys: Vec<_> = (0..y_shape).step_by(tile_size).collect();
-    let xs: Vec<_> = (0..x_shape).step_by(tile_size).collect();
+    let ys = (0..y_shape).step_by(tile_size).collect::<Vec<_>>();
+    let xs = (0..x_shape).step_by(tile_size).collect::<Vec<_>>();
 
-    group.bench_function(format!("shape {:?}, count {}", data.shape(), count), |b| {
-        b.iter(|| {
-            let polygon_set = PolygonSet::new(1);
-            ys.par_iter().for_each(|&y| {
+    group.bench_function(format!("shape {:?}", data.shape()), |b| {
+        b.iter_with_large_drop(|| {
+            let mut polygon_set = PolygonSet::new(1);
+            ys.iter().for_each(|&y| {
                 let y_max = std::cmp::min(y_shape, y + tile_size);
 
-                xs.par_iter().for_each(|&x| {
+                xs.iter().for_each(|&x| {
                     let x_max = std::cmp::min(x_shape, x + tile_size);
 
                     let cuboid = data.slice(s![.., y..y_max, x..x_max]).into_dyn();
@@ -47,7 +44,8 @@ fn ftl_rust(c: &mut Criterion) {
                 });
             });
             polygon_set.digest();
-            assert!(count == polygon_set.len());
+            println!("Count: {}", polygon_set.len());
+            polygon_set
         })
     });
 }

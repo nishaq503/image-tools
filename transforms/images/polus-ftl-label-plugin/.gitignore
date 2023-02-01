@@ -6,5 +6,10 @@
 build
 dist
 ftl_rust.egg-info
-target
-Cargo.lock
+/target
+/Cargo.lock
+/.venv
+/data
+/flamegraph.svg
+/perf.data
+/perf.data.old
