@@ -31,14 +31,15 @@ fn main() {
     let mut polygon_set = PolygonSet::new(1);
     ys.iter()
         .enumerate()
-        .filter(|(iy, _)| (4..6).contains(iy))
-        .for_each(|(_, &y)| {
+        .filter(|(iy, _)| (3..7).contains(iy))
+        .for_each(|(iy, &y)| {
             let y_max = std::cmp::min(y_shape, y + tile_size);
 
             xs.iter()
                 .enumerate()
-                .filter(|(ix, _)| (4..6).contains(ix))
-                .for_each(|(_, &x)| {
+                .filter(|(ix, _)| (3..7).contains(ix))
+                .for_each(|(ix, &x)| {
+                    println!("Tile index: {iy}, {ix}");
                     let x_max = std::cmp::min(x_shape, x + tile_size);
 
                     let cuboid = data.slice(s![.., y..y_max, x..x_max]).into_dyn();
@@ -48,5 +49,5 @@ fn main() {
 
     println!("Digesting polygon set ...");
     polygon_set.digest();
-    println!("Count: {}", polygon_set.len());
+    assert_eq!(11049, polygon_set.len());
 }

@@ -9,6 +9,7 @@ use pyo3::prelude::*;
 
 type Slice = (usize, (usize, (usize, usize))); // (z, (y, (x_min, x_max)))
 
+#[inline(never)]
 fn do_slices_overlap(left: Slice, right: Slice, connectivity: u8) -> bool {
     let (left_z, (left_y, (left_start, left_stop))) = left;
     let (right_z, (right_y, (right_start, right_stop))) = right;
@@ -151,22 +152,19 @@ impl Polygon {
     /// * Whether the two `Polygons` intersect.
     #[inline(never)]
     pub fn boundary_connects(&self, other: &Self) -> bool {
-        if self.bbox_overlap(other) {
-            // TODO: rayon
-            self.slices.iter().any(|&left| {
-                other
-                    .slices
-                    .iter()
-                    .any(|&right| do_slices_overlap(left, right, self.connectivity))
-            })
-        } else {
-            false
-        }
+        // TODO: rayon
+        self.bbox_overlap(other) && self.slices.iter().any(|&left| {
+            other
+                .slices
+                .iter()
+                .any(|&right| do_slices_overlap(left, right, self.connectivity))
+        })
     }
 
     /// Absorbs the other `Polygon` into itself.
     ///
     /// This leaves the other `Polygon` empty. The caller is responsible for properly handling the other `Polygon`.
+    #[inline(never)]
     pub fn absorb(&mut self, other: &mut Self) {
         self.x_min = min(self.x_min, other.x_min);
         self.y_min = min(self.y_min, other.y_min);
@@ -194,44 +192,26 @@ impl Polygon {
 ///
 /// A `Vec` of the merged `Polygons`. These `Polygons` do not connect with each
 /// other.
-fn bft_partition(polygons: &mut [Polygon], connectivity: u8) -> Vec<Polygon> {
+#[inline(never)]
+fn bft_partition(polygons: &mut [Polygon]) -> Vec<Polygon> {
     let mut merged: Vec<Polygon> = Vec::new();
 
     polygons.iter_mut().for_each(|target| {
         merged
             .iter_mut()
-            .filter(|candidate| !candidate.is_empty())
+            // .filter(|candidate| !candidate.is_empty())
             .for_each(|candidate| {
                 if target.boundary_connects(candidate) {
                     target.absorb(candidate);
                 }
             });
 
-        merged.push(Polygon {
-            connectivity,
-            slices: target.slices.drain(..).collect(),
-            x_min: target.x_min,
-            y_min: target.y_min,
-            z_min: target.z_min,
-            x_max: target.x_max,
-            y_max: target.y_max,
-            z_max: target.z_max,
-        });
+        merged.push(target.clone());
     });
 
     merged
-        .iter_mut()
+        .drain(..)
         .filter(|polygon| !polygon.is_empty())
-        .map(|polygon| Polygon {
-            connectivity,
-            slices: polygon.slices.drain(..).collect(),
-            x_min: polygon.x_min,
-            y_min: polygon.y_min,
-            z_min: polygon.z_min,
-            x_max: polygon.x_max,
-            y_max: polygon.y_max,
-            z_max: polygon.z_max,
-        })
         .collect()
 }
 
@@ -267,14 +247,14 @@ impl PartialOrd for Polygon {
     }
 }
 
-/// A `PolygonSet` handles and maintains `Polygons` in an image. This provides utilities for adding tiles from an image, reconciling labels within and across tiles, and extracting tiles with labelled objects.
+/// A `PolygonSet` handles and maintains `Polygons` in an image. This provides
+/// utilities for adding tiles from an image,reconciling labels within and
+/// across tiles, and extracting tiles with labelled objects.
 #[pyclass]
 #[derive(Clone, Debug)]
 pub struct PolygonSet {
     /// A `u8` to represent the connectivity used for determining neighbors.
     connectivity: u8,
-    /// A collection of `Polygons`. The Read-Write lock allows us to behave, for `Python`, that the object is mutable
-    /// by default while behaving, for `Rust`, the at object is immutable.
     polygons: Vec<Polygon>,
 }
 
@@ -309,23 +289,8 @@ impl PolygonSet {
 
     /// Restores the invariant that no two `Polygons` in the `PolygonSet` connect with each other.
     pub fn digest(&mut self) {
-        let mut polygons = self
-            .polygons
-            .drain(..)
-            .map(|polygon| Polygon {
-                connectivity: polygon.connectivity,
-                slices: polygon.slices.to_vec(),
-                x_min: polygon.x_min,
-                y_min: polygon.y_min,
-                z_min: polygon.z_min,
-                x_max: polygon.x_max,
-                y_max: polygon.y_max,
-                z_max: polygon.z_max,
-            })
-            .collect::<Vec<_>>();
-        let mut polygons = bft_partition(&mut polygons, self.connectivity);
-        polygons.sort();
-        self.polygons.append(&mut polygons);
+        self.polygons = bft_partition(&mut self.polygons);
+        self.polygons.sort();
     }
 }
 
@@ -342,12 +307,10 @@ impl PolygonSet {
         // TODO: rayon
         let mut slices = tile
             .outer_iter()
-            .into_iter()
             .enumerate()
             .flat_map(|(z, plane)| {
                 let mut slices = plane
                     .outer_iter()
-                    .into_iter()
                     .enumerate()
                     .flat_map(|(y, row)| {
                         // TODO: Insert AVX here.
@@ -363,13 +326,15 @@ impl PolygonSet {
                         if runs.is_empty() {
                             Vec::new()
                         } else {
-                            let starts: Vec<_> = runs.iter().step_by(2).cloned().collect();
-                            let ends: Vec<_> = runs.into_iter().skip(1).step_by(2).collect();
+                            let (starts, ends): (Vec<_>, Vec<_>) = runs.into_iter().enumerate().partition(|&(i, _)| i % 2 == 0);
+                            // let starts: Vec<_> = runs.iter().step_by(2).copied().collect();
+                            // let ends: Vec<_> = runs.into_iter().skip(1).step_by(2).collect();
 
                             // TODO: rayon
                             starts
                                 .into_iter()
-                                .zip(ends.into_iter())
+                                .map(|(_, s)| s)
+                                .zip(ends.into_iter().map(|(_, s)| s))
                                 .map(|(start, stop)| {
                                     Polygon::new(
                                         self.connectivity,
@@ -383,11 +348,11 @@ impl PolygonSet {
                         }
                     })
                     .collect::<Vec<_>>();
-                bft_partition(&mut slices, self.connectivity)
+                bft_partition(&mut slices)
             })
             .collect::<Vec<_>>();
 
-        let mut polygons = bft_partition(&mut slices, self.connectivity);
+        let mut polygons = bft_partition(&mut slices);
 
         self.polygons.append(&mut polygons);
     }
