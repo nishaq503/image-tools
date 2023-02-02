@@ -5,54 +5,61 @@ use std::cmp::Ordering;
 use ndarray::prelude::*;
 use numpy::PyReadonlyArrayDyn;
 use pyo3::prelude::*;
-// use rayon::prelude::*;
 
-type Slice = (usize, (usize, (usize, usize))); // (z, (y, (x_min, x_max)))
+// type  Slice = (usize, (usize, (usize, usize))); // (z, (y, (x_min, x_max)))
 
-#[inline(never)]
-fn do_slices_overlap(left: Slice, right: Slice, connectivity: u8) -> bool {
-    let (left_z, (left_y, (left_start, left_stop))) = left;
-    let (right_z, (right_y, (right_start, right_stop))) = right;
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct Slice {
+    z: usize,
+    y: usize,
+    s: usize,
+    e: usize,
+}
 
-    if (left_start > right_stop) || (right_start > left_stop) {
-        return false;
+impl Slice {
+    fn values(&self) -> [usize; 4] {
+        [self.z, self.y, self.s, self.e]
     }
 
-    let z_diff = if left_z > right_z {
-        left_z - right_z
-    } else {
-        right_z - left_z
-    };
-    if z_diff > 1 {
-        return false;
-    }
-
-    let y_diff = if left_y > right_y {
-        left_y - right_y
-    } else {
-        right_y - left_y
-    };
-    if y_diff > 1 {
-        return false;
-    }
-
-    if z_diff == 0 && y_diff == 0 {
-        (left_start == right_stop) || (right_start == left_stop)
-    } else if y_diff == 1 && z_diff == 1 {
-        if connectivity == 3 {
-            (left_start <= right_stop) || (right_start <= left_stop)
-        } else {
-            (left_start < right_stop) || (right_start < left_stop)
+    fn _overlaps(&self, other: &Slice, connectivity: u8) -> bool {
+        let [lz, ly, ls, le] = self.values();
+        let [rz, ry, rs, re] = other.values();
+    
+        let dz = if lz > rz { lz - rz } else { rz - lz };
+        let dy = if ly > ry { ly - ry } else { ry - ly };
+    
+        if (dz > 1) || (dy > 1) || (ls > re) || (rs > le) {
+            return false;
         }
-    } else if connectivity == 1 {
-        (left_start < right_stop) || (right_start < left_stop)
-    } else {
-        (left_start <= right_stop) || (right_start <= left_stop)
+    
+        if dz == 0 && dy == 0 {
+            (ls == re) || (rs == le)
+        } else if dy == 1 && dz == 1 {
+            if connectivity == 3 {
+                (ls <= re) || (rs <= le)
+            } else {
+                (ls < re) || (rs < le)
+            }
+        } else if connectivity == 1 {
+            (ls < re) || (rs < le)
+        } else {
+            (ls <= re) || (rs <= le)
+        }
     }
+    
+    #[inline(never)]
+    fn do_slices_overlap(&self, other: &Self, connectivity: u8) -> bool {
+        if self > other {
+            other._overlaps(self, connectivity)
+        } else {
+            self._overlaps(other, connectivity)
+        }
+    }
+
 }
 
 /// A `Polygon` represents a single connected object to be labelled.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Polygon {
     /// Connectivity determines how we find neighbors for pixels.
     connectivity: u8,
@@ -81,23 +88,20 @@ impl Polygon {
     /// * `slices` - A Vec of Slices that represent the exact boundaries of the `Polygon`.
     ///              This must be non-empty. We assume that the caller has verified that the slices are connected.
     ///              Each slice is represented as a nested tuple `(z, (y, (x_min, x_max)))`
-    pub fn new(connectivity: u8, slices: Vec<Slice>) -> Self {
+    fn new(connectivity: u8, slices: Vec<Slice>) -> Self {
         assert!(
             !slices.is_empty(),
             "Cannot create Polygon without any slices."
         );
 
-        let (zs, rest): (Vec<_>, Vec<_>) = slices.iter().copied().unzip();
-        let z_min = *zs.iter().min().unwrap();
-        let z_max = zs.into_iter().max().unwrap() + 1;
+        let z_min = slices.iter().map(|s| s.z).min().unwrap();
+        let z_max = slices.iter().map(|s| s.z).max().unwrap() + 1;
 
-        let (ys, rest): (Vec<_>, Vec<_>) = rest.into_iter().unzip();
-        let y_min = *ys.iter().min().unwrap();
-        let y_max = ys.into_iter().max().unwrap() + 1;
+        let y_min = slices.iter().map(|s| s.y).min().unwrap();
+        let y_max = slices.iter().map(|s| s.y).max().unwrap() + 1;
 
-        let (starts, stops): (Vec<_>, Vec<_>) = rest.into_iter().unzip();
-        let x_min = starts.into_iter().min().unwrap();
-        let x_max = stops.into_iter().max().unwrap();
+        let x_min = slices.iter().map(|s| s.s).min().unwrap();
+        let x_max = slices.iter().map(|s| s.e).max().unwrap() + 1;
 
         Polygon {
             connectivity,
@@ -153,27 +157,30 @@ impl Polygon {
     #[inline(never)]
     pub fn boundary_connects(&self, other: &Self) -> bool {
         // TODO: rayon
-        self.bbox_overlap(other) && self.slices.iter().any(|&left| {
-            other
-                .slices
-                .iter()
-                .any(|&right| do_slices_overlap(left, right, self.connectivity))
-        })
+        self.bbox_overlap(other)
+            && self.slices.iter().any(|left| {
+                other
+                    .slices
+                    .iter()
+                    .any(|right| left.do_slices_overlap(right, self.connectivity))
+            })
     }
 
     /// Absorbs the other `Polygon` into itself.
     ///
     /// This leaves the other `Polygon` empty. The caller is responsible for properly handling the other `Polygon`.
     #[inline(never)]
-    pub fn absorb(&mut self, other: &mut Self) {
-        self.x_min = min(self.x_min, other.x_min);
-        self.y_min = min(self.y_min, other.y_min);
-        self.z_min = min(self.z_min, other.z_min);
-        self.x_max = max(self.x_max, other.x_max);
-        self.y_max = max(self.y_max, other.y_max);
-        self.z_max = max(self.z_max, other.z_max);
+    pub fn absorb(&mut self, others: Vec<Self>) {
+        assert!(!others.is_empty());
+        self.x_min = min(self.x_min, others.iter().map(|o| o.x_min).min().unwrap());
+        self.y_min = min(self.y_min, others.iter().map(|o| o.y_min).min().unwrap());
+        self.z_min = min(self.z_min, others.iter().map(|o| o.z_min).min().unwrap());
+        self.x_max = max(self.x_max, others.iter().map(|o| o.x_max).max().unwrap());
+        self.y_max = max(self.y_max, others.iter().map(|o| o.y_max).max().unwrap());
+        self.z_max = max(self.z_max, others.iter().map(|o| o.z_max).max().unwrap());
 
-        self.slices.append(&mut other.slices);
+        self.slices
+            .extend(others.into_iter().flat_map(|o| o.slices.into_iter()))
     }
 }
 
@@ -193,26 +200,22 @@ impl Polygon {
 /// A `Vec` of the merged `Polygons`. These `Polygons` do not connect with each
 /// other.
 #[inline(never)]
-fn bft_partition(polygons: &mut [Polygon]) -> Vec<Polygon> {
-    let mut merged: Vec<Polygon> = Vec::new();
-
-    polygons.iter_mut().for_each(|target| {
+fn bft_partition(polygons: Vec<Polygon>) -> Vec<Polygon> {
+    // TODO: This takes ~91% of the time
+    polygons.into_iter().fold(Vec::new(), |mut merged, mut t| {
+        let (to_be_merged, mut merged): (Vec<_>, Vec<_>) =
+            merged.drain(..).partition(|c| t.boundary_connects(c));
+        if !to_be_merged.is_empty() {
+            t.absorb(to_be_merged);
+        }
+        merged.push(t);
         merged
-            .iter_mut()
-            // .filter(|candidate| !candidate.is_empty())
-            .for_each(|candidate| {
-                if target.boundary_connects(candidate) {
-                    target.absorb(candidate);
-                }
-            });
-
-        merged.push(target.clone());
-    });
-
-    merged
-        .drain(..)
-        .filter(|polygon| !polygon.is_empty())
-        .collect()
+    })
+    // .reduce(Vec::new, |mut a, b| {
+    //     // a.append(&mut b);
+    //     a.extend(b.into_iter());
+    //     a
+    // })
 }
 
 impl Ord for Polygon {
@@ -255,7 +258,7 @@ impl PartialOrd for Polygon {
 pub struct PolygonSet {
     /// A `u8` to represent the connectivity used for determining neighbors.
     connectivity: u8,
-    polygons: Vec<Polygon>,
+    polygons: std::sync::Arc<std::sync::RwLock<Vec<Polygon>>>,
 }
 
 #[pymethods]
@@ -271,12 +274,12 @@ impl PolygonSet {
 
     /// Returns whether the `PolygonSet` is empty. This method is a Rust-recommended complement to the `len` method.
     pub fn is_empty(&self) -> bool {
-        self.polygons.is_empty()
+        self.polygons.read().unwrap().is_empty()
     }
 
     /// Returns the number of `Polygons` in this set.
     pub fn len(&self) -> usize {
-        self.polygons.len()
+        self.polygons.read().unwrap().len()
     }
 
     pub fn add_tile(
@@ -288,9 +291,10 @@ impl PolygonSet {
     }
 
     /// Restores the invariant that no two `Polygons` in the `PolygonSet` connect with each other.
-    pub fn digest(&mut self) {
-        self.polygons = bft_partition(&mut self.polygons);
-        self.polygons.sort();
+    pub fn digest(&self) {
+        let mut p = bft_partition(self.polygons.write().unwrap().drain(..).collect());
+        p.sort();
+        *self.polygons.write().unwrap() = p;
     }
 }
 
@@ -299,17 +303,17 @@ impl PolygonSet {
     ///
     /// This might break the invariant that no two `Polygons` in the `PolygonSet` connect with each other.
     /// Therefore, The user must call the `digest` method after all tiles have been added.
-    pub fn _add_tile(&mut self, tile: ArrayViewD<u8>, top_left_point: (usize, usize, usize)) {
+    pub fn _add_tile(&self, tile: ArrayViewD<u8>, top_left_point: (usize, usize, usize)) {
         // TODO: Figure out how to add tiles in parallel, with the GIL being the main problem.
         // TODO: Is it possible to have Rust directly call methods from bfio?
         let (z_min, y_min, x_min) = top_left_point;
 
         // TODO: rayon
-        let mut slices = tile
+        let slices = tile
             .outer_iter()
             .enumerate()
             .flat_map(|(z, plane)| {
-                let mut slices = plane
+                let slices = plane
                     .outer_iter()
                     .enumerate()
                     .flat_map(|(y, row)| {
@@ -326,7 +330,8 @@ impl PolygonSet {
                         if runs.is_empty() {
                             Vec::new()
                         } else {
-                            let (starts, ends): (Vec<_>, Vec<_>) = runs.into_iter().enumerate().partition(|&(i, _)| i % 2 == 0);
+                            let (starts, ends): (Vec<_>, Vec<_>) =
+                                runs.into_iter().enumerate().partition(|&(i, _)| i % 2 == 0);
                             // let starts: Vec<_> = runs.iter().step_by(2).copied().collect();
                             // let ends: Vec<_> = runs.into_iter().skip(1).step_by(2).collect();
 
@@ -338,23 +343,25 @@ impl PolygonSet {
                                 .map(|(start, stop)| {
                                     Polygon::new(
                                         self.connectivity,
-                                        vec![(
-                                            z + z_min,
-                                            (y + y_min, (start + x_min, stop + x_min)),
-                                        )],
+                                        vec![Slice {
+                                            z: z + z_min,
+                                            y: y + y_min,
+                                            s: start + x_min,
+                                            e: stop + x_min,
+                                        }]
                                     )
                                 })
                                 .collect::<Vec<_>>()
                         }
                     })
                     .collect::<Vec<_>>();
-                bft_partition(&mut slices)
+                bft_partition(slices)
             })
             .collect::<Vec<_>>();
-
-        let mut polygons = bft_partition(&mut slices);
-
-        self.polygons.append(&mut polygons);
+        self.polygons
+            .write()
+            .unwrap()
+            .append(&mut bft_partition(slices));
     }
 
     /// Once all tiles have been added and digested, this method can be used to extract tiles with properly labelled objects.
@@ -367,8 +374,8 @@ impl PolygonSet {
         let tile_polygon = Polygon::new(
             self.connectivity,
             vec![
-                (z_min, (y_min, (x_min, x_max))),
-                (z_max, (y_max, (x_min, x_max))),
+                Slice { z: z_min, y: y_min, s: x_min, e: x_max },
+                Slice { z: z_max, y: y_max, s: x_min, e: x_max },
             ],
         );
 
@@ -377,26 +384,31 @@ impl PolygonSet {
         // Otherwise, it is no slower than a single-threaded implementation without the RwLocks.
         let mut tile: Array3<usize> = Array3::zeros((z_max - z_min, y_max - y_min, x_max - x_min));
 
-        self.polygons.iter().enumerate().for_each(|(i, polygon)| {
-            if tile_polygon.bbox_overlap(polygon) {
-                polygon
-                    .slices
-                    .iter()
-                    .copied()
-                    .for_each(|(z, (y, (start, stop)))| {
-                        if z_min <= z && z < z_max && y_min <= y && y < y_max {
-                            let start = max(x_min, start);
-                            let stop = min(x_max, stop);
-                            let mut section = tile.slice_mut(s![
-                                z - z_min,
-                                y - y_min,
-                                (start - x_min)..(stop - x_min)
-                            ]);
-                            section.fill(i + 1);
-                        }
-                    });
-            }
-        });
+        self.polygons
+            .read()
+            .unwrap()
+            .iter()
+            .enumerate()
+            .for_each(|(i, polygon)| {
+                if tile_polygon.bbox_overlap(polygon) {
+                    polygon
+                        .slices
+                        .iter()
+                        .map(|s| s.values())
+                        .for_each(|[z, y, start, stop]| {
+                            if z_min <= z && z < z_max && y_min <= y && y < y_max {
+                                let start = max(x_min, start);
+                                let stop = min(x_max, stop);
+                                let mut section = tile.slice_mut(s![
+                                    z - z_min,
+                                    y - y_min,
+                                    (start - x_min)..(stop - x_min)
+                                ]);
+                                section.fill(i + 1);
+                            }
+                        });
+                }
+            });
 
         tile.into_dyn()
     }

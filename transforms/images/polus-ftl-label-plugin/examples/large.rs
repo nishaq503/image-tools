@@ -4,6 +4,7 @@ use ftl_rust::PolygonSet;
 use memmap2::Mmap;
 use ndarray::prelude::*;
 use ndarray_npy::ViewNpyExt;
+// use rayon::prelude::*;
 
 fn main() {
     let tile_size = 1024;
@@ -28,16 +29,16 @@ fn main() {
     let ys = (0..y_shape).step_by(tile_size).collect::<Vec<_>>();
     let xs = (0..x_shape).step_by(tile_size).collect::<Vec<_>>();
 
-    let mut polygon_set = PolygonSet::new(1);
+    let polygon_set = PolygonSet::new(1);
     ys.iter()
         .enumerate()
-        .filter(|(iy, _)| (3..7).contains(iy))
+        .filter(|(iy, _)| (4..6).contains(iy))
         .for_each(|(iy, &y)| {
             let y_max = std::cmp::min(y_shape, y + tile_size);
 
             xs.iter()
                 .enumerate()
-                .filter(|(ix, _)| (3..7).contains(ix))
+                .filter(|(ix, _)| (4..6).contains(ix))
                 .for_each(|(ix, &x)| {
                     println!("Tile index: {iy}, {ix}");
                     let x_max = std::cmp::min(x_shape, x + tile_size);
@@ -49,5 +50,8 @@ fn main() {
 
     println!("Digesting polygon set ...");
     polygon_set.digest();
-    assert_eq!(11049, polygon_set.len());
+    // assert_eq!(711, polygon_set.len()); // 4..5
+    assert_eq!(2_848, polygon_set.len()); // 4..6
+    // assert_eq!(11_049, polygon_set.len()); // 3..7
+    // assert_eq!(24_392, polygon_set.len()); // 3..9
 }

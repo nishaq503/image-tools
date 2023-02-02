@@ -32,7 +32,7 @@ fn ftl_rust(c: &mut Criterion) {
 
     group.bench_function(format!("shape {:?}", data.shape()), |b| {
         b.iter_with_large_drop(|| {
-            let mut polygon_set = PolygonSet::new(1);
+            let polygon_set = PolygonSet::new(1);
             ys.iter().for_each(|&y| {
                 let y_max = std::cmp::min(y_shape, y + tile_size);
 
