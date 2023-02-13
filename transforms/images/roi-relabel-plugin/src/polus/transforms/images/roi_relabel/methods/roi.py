@@ -42,7 +42,9 @@ class Point:
         )
 
     def distance_to(self, other: "Point") -> float:
-        return math.hypot(self.x - other.x, self.y - other.y)
+        x = self.x - other.x
+        y = self.y - other.y
+        return math.sqrt(x * x + y * y)
 
     def as_tuple(self) -> tuple[float, float]:
         return self.x, self.y
