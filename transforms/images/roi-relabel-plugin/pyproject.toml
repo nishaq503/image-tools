@@ -7,7 +7,7 @@ readme = "README.md"
 packages = [{include = "polus", from = "src"}]
 
 [tool.poetry.dependencies]
-python = ">=3.9,<3.12"
+python = ">=3.9,<3.9.7 || >3.9.7,<3.12"
 bfio = { version = "2.1.9", extras = ["all"] }
 filepattern = "1.4.7"
 numpy = "^1.24.2"
@@ -26,6 +26,11 @@ flake8 = "^6.0.0"
 flake8-docstrings = "^1.7.0"
 black = "^23.1.0"
 mypy = "^1.0.0"
+
+[tool.poetry.group.examples.dependencies]
+matplotlib = "^3.6.3"
+seaborn = "^0.12.2"
+streamlit = "^1.18.1"
 
 [build-system]
 requires = ["poetry-core"]

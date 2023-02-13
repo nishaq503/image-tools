@@ -12,6 +12,12 @@ from ..utils import constants, helpers
 from . import graph as graph
 from . import roi as roi
 
+__all__ = [
+    "relabel",
+    "METHODS",
+    "Methods",
+]
+
 METHODS = [
     "contiguous",
     "randomize",
@@ -133,9 +139,3 @@ def relabel(
                 writer[y_min:y_max, x_min:x_max, z, 0, 0] = out_tile
 
     return True
-
-
-__all__ = [
-    "relabel",
-    "METHODS",
-]
