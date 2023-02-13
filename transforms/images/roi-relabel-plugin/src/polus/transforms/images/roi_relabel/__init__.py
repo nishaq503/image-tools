@@ -1,1 +1,1 @@
-"""ROI-Relabel plugin."""
+"""RoI-Relabel Plugin."""
