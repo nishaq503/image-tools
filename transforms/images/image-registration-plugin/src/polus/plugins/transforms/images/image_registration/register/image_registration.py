@@ -46,7 +46,7 @@ def get_transform(
     min_val: float,
     method: str,
 ) -> numpy.ndarray:
-    """get_transform Calculate homography matrix transform.
+    """Calculate homography matrix transform.
 
     This function registers the moving image with reference image
 
@@ -56,18 +56,17 @@ def get_transform(
     Outputs:
         homography= transformation applied to the moving image
     """
-    # height, width of the reference image
-    height, width = reference_image.shape
     # max number of features to be calculated using ORB
-    max_features = 500000
+    max_features = 500_000
     # initialize orb feature matcher
     orb = cv2.ORB_create(max_features)
 
     # Normalize images and convert to appropriate type
     moving_image_norm = cv2.GaussianBlur(moving_image, (3, 3), 0)
-    reference_image_norm = cv2.GaussianBlur(reference_image, (3, 3), 0)
     moving_image_norm = (moving_image_norm - min_val) / (max_val - min_val)
     moving_image_norm = (moving_image_norm * 255).astype(np.uint8)
+
+    reference_image_norm = cv2.GaussianBlur(reference_image, (3, 3), 0)
     reference_image_norm = (reference_image_norm - min_val) / (max_val - min_val)
     reference_image_norm = (reference_image_norm * 255).astype(np.uint8)
 
@@ -90,11 +89,11 @@ def get_transform(
     }
     matcher = cv2.FlannBasedMatcher(flann_params, {})
     matches = matcher.match(descriptors1, descriptors2, None)
-    matches.sort(key=lambda x: x.distance, reverse=False)
+    matches = sorted(matches, key=lambda x: x.distance, reverse=False)
 
     # extract top 25% of matches
     good_match_percent = 0.25
-    num_good_matches = int(len(matches) * good_match_percent)
+    num_good_matches = max(1, int(len(matches) * good_match_percent))
     matches = matches[:num_good_matches]
 
     # extract the point coordinates from the keypoints
@@ -157,7 +156,7 @@ def get_scaled_down_images(
     height = np.ceil(image.X / scale_factor).astype(int)
 
     # Initialize the output
-    rescaled_image = np.zeros((width, height), dtype=image._pix["type"])
+    rescaled_image = np.zeros((width, height), dtype=image.dtype)
 
     # If max value is requested, initialize the variables
     if get_max:
@@ -182,7 +181,7 @@ def get_scaled_down_images(
 
         """
         # Read an image tile
-        tile = reader[y_, x_, 0, 0, 0]
+        tile = reader[y_[0] : y_[1], x_[0] : x_[1], 0, 0, 0]
 
         # Average the image for scaling
         blurred_image = cv2.boxFilter(tile, -1, (scale_factor, scale_factor))
@@ -202,11 +201,11 @@ def get_scaled_down_images(
     threads = []
     with ThreadPoolExecutor(max([cpu_count() // 2, 1])) as executor:
         for x in range(0, image.X, stride):
-            x_max = np.min([x + stride, image.X])  # max x to load
+            x_max = min(x + stride, image.X)  # max x to load
             xi = int(x // scale_factor)  # initial scaled x-index
             xe = int(np.ceil(x_max / scale_factor))  # ending scaled x-index
             for y in range(0, image.Y, stride):
-                y_max = np.min([y + stride, image.Y])  # max y to load
+                y_max = min(y + stride, image.Y)  # max y to load
                 yi = int(y // scale_factor)  # initial scaled y-index
                 ye = int(np.ceil(y_max / scale_factor))  # ending scaled y-index
 
@@ -315,7 +314,12 @@ def register_image(  # noqa: PLR0913
         projective_transform = rough_homography_upscaled
 
     # Write the transformed moving image
-    bw[y, x] = transformed_image[y_crop[0] : y_crop[1], x_crop[0] : x_crop[1]]
+    y_max = y + y_crop[1] - y_crop[0]
+    x_max = x + x_crop[1] - x_crop[0]
+    bw[y:y_max, x:x_max, 0, 0, 0] = transformed_image[
+        y_crop[0] : y_crop[1],
+        x_crop[0] : x_crop[1],
+    ]
 
     return projective_transform
 
@@ -373,7 +377,9 @@ def apply_transform(  # noqa: PLR0913
         )
 
     # Write the transformed image to the output file
-    bw[y, x, 0, 0, 0] = transformed_image[
+    y_max = y + y_crop[1] - y_crop[0]
+    x_max = x + x_crop[1] - x_crop[0]
+    bw[y:y_max, x:x_max, 0, 0, 0] = transformed_image[
         y_crop[0] : y_crop[1],
         x_crop[0] : x_crop[1],
     ]
@@ -472,7 +478,11 @@ def main(  # noqa: PLR0915, C901
     # upscale the rough homography matrix
     logger.info("Inverting homography...")
     if method == "Projective":
-        rough_homography_upscaled = rough_homography_downscaled * scale_matrix
+        rough_homography_upscaled = (
+            numpy.eye(scale_matrix.shape[0])
+            if rough_homography_downscaled is None
+            else rough_homography_downscaled * scale_matrix
+        )
         homography_inverse = np.linalg.inv(rough_homography_upscaled)
     else:
         rough_homography_upscaled = rough_homography_downscaled
@@ -481,14 +491,14 @@ def main(  # noqa: PLR0915, C901
     # Initialize the output file
     bw = BioWriter(
         out_dir.joinpath(Path(registration_set[1]).name),
-        metadata=br_mov.read_metadata(),
+        metadata=br_mov.metadata,
         max_workers=write_workers,
     )
-    bw.num_x(br_ref.X)
-    bw.num_y(br_ref.Y)
-    bw.num_z(1)
-    bw.num_c(1)
-    bw.num_t(1)
+    bw.X = br_ref.X
+    bw.Y = br_ref.Y
+    bw.Z = 1
+    bw.C = 1
+    bw.T = 1
 
     # transformation variables
     reg_shape = []
@@ -503,8 +513,8 @@ def main(  # noqa: PLR0915, C901
         for x in range(0, br_ref.X, 2048):
             for y in range(0, br_ref.Y, 2048):
                 # Get reference/template image coordinates
-                xt = [np.max([0, x - 1024]), np.min([br_ref.X, x + 2048 + 1024])]
-                yt = [np.max([0, y - 1024]), np.min([br_ref.Y, y + 2048 + 1024])]
+                xt = [max(0, x - 1024), min(br_ref.X, x + 2048 + 1024)]
+                yt = [max(0, y - 1024), min(br_ref.Y, y + 2048 + 1024)]
 
                 # Use the rough homography to get coordinates in the moving image
                 coords = np.array(
@@ -522,12 +532,12 @@ def main(  # noqa: PLR0915, C901
                 maxs = np.max(coords, axis=1)
 
                 xm = [
-                    int(np.floor(np.max([mins[0], 0]))),
-                    int(np.ceil(np.min([maxs[0], br_mov.X]))),
+                    int(np.floor(max(mins[0], 0))),
+                    int(np.ceil(min(maxs[0], br_mov.X))),
                 ]
                 ym = [
-                    int(np.floor(np.max([mins[1], 0]))),
-                    int(np.ceil(np.min([maxs[1], br_mov.Y]))),
+                    int(np.floor(max(mins[1], 0))),
+                    int(np.ceil(min(maxs[1], br_mov.Y))),
                 ]
 
                 reg_tiles.append((xm, ym, xt, yt))

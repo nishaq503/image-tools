@@ -93,7 +93,6 @@ def main(  # noqa: PLR0913
     logger.info(f"--outDir = {out_dir}")
 
     template_image_path = inp_dir.joinpath(template)
-    filename_len = len(template)
 
     # parse the input collection
     logger.info("Parsing the input collection and getting registration_dictionary")
@@ -112,14 +111,14 @@ def main(  # noqa: PLR0913
             similar_transformation_list = similar_transformation_set.tolist()
             similar_transformation_list.append(registration_set[0])
             for image_path in similar_transformation_list:
-                image_name = image_path[-1 * filename_len :]
+                image_name = image_path.name
                 logger.info(f"Copying image {image_name} to output directory")
                 shutil.copy2(image_path, str(out_dir.joinpath(image_name)))
             continue
 
         # concatenate lists into a string to pass as an argument to argparse
-        registration_string = " ".join(registration_set)
-        similar_transformation_string = " ".join(similar_transformation_list)
+        registration_string = " ".join(map(str, registration_set))
+        similar_transformation_string = " ".join(map(str, similar_transformation_list))
 
         image_registration.main(
             registration_string,
@@ -133,8 +132,18 @@ def main(  # noqa: PLR0913
         logger.info("--preview = True")
         raise NotImplementedError
 
-    raise NotImplementedError
-
 
 if __name__ == "__main__":
     app()
+
+
+"""
+python -m polus.plugins.transforms.images.image_registration \
+    --inpDir ~/Documents/axle/data/ratbrain/subset/slides \
+    --filePattern "r{r}_c{c+}.ome.tif" \
+    --registrationVariable "c" \
+    --transformationVariable "r" \
+    --template "r1_c0.ome.tif" \
+    --method "Projective" \
+    --outDir ~/Documents/axle/data/ratbrain/demo-out/registered
+"""

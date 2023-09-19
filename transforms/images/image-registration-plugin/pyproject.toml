@@ -32,6 +32,8 @@ bump2version = "^1.0.1"
 pytest = "^7.3.2"
 pytest-xdist = "^3.3.1"
 pytest-sugar = "^0.9.7"
+napari = {version = "^0.4.18", extras = ["all"]}
+ome-types = "^0.4.2"
 
 [build-system]
 requires = ["poetry-core"]
