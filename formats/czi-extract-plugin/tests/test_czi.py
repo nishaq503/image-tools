@@ -1,11 +1,10 @@
 """Cell border segmentation package."""
+
 from pathlib import Path
+import shutil
 import czifile
 import skimage
 import polus.plugins.formats.czi_extract.czi as cz
-
-from tests.fixture import *  # noqa: F403
-from tests.fixture import clean_directories
 
 
 def test_extract_fovs(download_czi: Path, output_directory: Path) -> None:
@@ -54,3 +53,10 @@ def test_write_thread(output_directory) -> None:
         assert out_ext == True
 
     clean_directories()
+
+
+def clean_directories() -> None:
+    """Remove all temporary directories."""
+    for d in Path(".").cwd().iterdir():
+        if d.is_dir() and d.name.startswith("tmp"):
+            shutil.rmtree(d)

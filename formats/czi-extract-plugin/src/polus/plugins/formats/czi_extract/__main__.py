@@ -88,6 +88,7 @@ def main(
                 )
                 out_json["outDir"].append(out_name)
             json.dump(out_json, jfile, indent=2)
+        return
 
     with preadator.ProcessManager(
         name="Convert czi to individual ome tif",
@@ -98,7 +99,6 @@ def main(
         for file in files():
             thread = pm.submit_process(cz.extract_fovs, file[1][0], out_dir)
             threads.append(thread)
-        pm.join_processes()
 
         for f in tqdm(
             as_completed(threads),
@@ -110,6 +110,8 @@ def main(
             colour="cyan",
         ):
             f.result()
+
+        pm.join_processes()
 
 
 if __name__ == "__main__":

@@ -10,6 +10,7 @@ env/
 venv/
 # test data directory
 data
+tmp_*
 # yaml file
 .pre-commit-config.yaml
 # hidden files
