@@ -1,0 +1,61 @@
+{
+  "name": "Stitching Vector to MicroJson",
+  "version": "0.1.0",
+  "title": "Stitching Vector to MicroJson",
+  "description": "Convert stitching vectors from text format to microjson.",
+  "author": "Najib Ishaq (najib.ishaq@nih.gov)",
+  "institution": "National Center for Advancing Translational Sciences, National Institutes of Health",
+  "repository": "https://github.com/polusai/polus-plugins",
+  "website": "https://ncats.nih.gov/preclinical/core/informatics",
+  "citation": "",
+  "containerId": "polusai/stitching-vector-to-microjson-plugin:0.1.0",
+  "baseCommand": [
+    "python3",
+    "-m",
+    "polus.plugins.formats.stitching_vector_to_microjson"
+  ],
+  "inputs": [
+    {
+      "name": "inpDir",
+      "type": "stitchingVector",
+      "description": "Stitching vector directory containing text files",
+      "required": true
+    },
+    {
+      "name": "filePattern",
+      "type": "string",
+      "description": "Filename pattern used to select stitching vector files",
+      "required": true
+    },
+    {
+      "name": "preview",
+      "type": "boolean",
+      "description": "Preview the output files' names without actually running computation",
+      "required": false
+    }
+  ],
+  "outputs": [
+    {
+      "name": "outDir",
+      "type": "genericData",
+      "description": "Stitching vector directory for microjson files"
+    }
+  ],
+  "ui": [
+    {
+      "key": "inputs.inpDir",
+      "title": "Images to correct",
+      "description": "Stitching vector directory containing text files"
+    },
+    {
+      "key": "inputs.filePattern",
+      "title": "File pattern",
+      "description": "Filename pattern used to select stitching vector files"
+    },
+    {
+      "key": "inputs.preview",
+      "title": "Preview Output",
+      "description": "Preview the output files' names without actually running computation"
+    }
+  ]
+}
