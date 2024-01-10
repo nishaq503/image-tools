@@ -33,15 +33,18 @@ jobs:
       - name: Find Plugin
         id: plugin_filter
         run: |
+          FOUND_PLUGIN=false
           for changed_file in ${{ steps.files.outputs.all }}
           do
             if [[ "$(basename ${changed_file})" == *"pyproject.toml"* ]]
             then
               echo "plugin_dir=$(dirname ${changed_file})" >> "$GITHUB_OUTPUT"
               echo "plugin_name=$(basename $(dirname ${changed_file}))" >> "$GITHUB_OUTPUT"
+              FOUND_PLUGIN=true
+              break
             fi
           done
-          if [[ -z "$GITHUB_OUTPUT" ]]
+          if [[ "$FOUND_PLUGIN" = false ]]
           then
             echo "::error::No pyproject.toml file found among changed files" && exit 1
           fi
@@ -49,8 +52,11 @@ jobs:
         id: old_version
         run: |
           cd "${{ steps.plugin_filter.outputs.plugin_dir }}"
+          if [[ "$(cat VERSION)" == *"dev"* ]]
+          then
+            echo "::error::VERSION file is empty" && exit 1
+          fi
           echo "version=$(cat VERSION)" >> "$GITHUB_OUTPUT"
-      # TODO: Add checks to make sure that the version is a dev version
       - name: Bump Version
         id: bump_version
         run: |
