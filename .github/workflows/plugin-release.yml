@@ -26,28 +26,37 @@ jobs:
           pip install bump2version
       - name: Get changed files
         uses: jitterbit/get-changed-files@v1
-        id: abc
+        id: files
         with:
           format: space-delimited
           token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Printing
+      - name: Find Plugin
         id: plugin_filter
         run: |
-          echo "Added:"
-          echo "${{ steps.abc.outputs.added }}"
-          echo "Renamed:"
-          echo "${{ steps.abc.outputs.renamed }}"
-          echo "Modified:"
-          echo "${{ steps.abc.outputs.modified }}"
-          echo "Added+Modified:"
-          echo "${{ steps.abc.outputs.added_modified }}"
-        # TODO: Figure out how to get the plugin name from the changed files
+          for changed_file in ${{ steps.files.outputs.all }}
+          do
+            if [[ "$(basename ${changed_file})" == *"pyproject.toml"* ]]
+            then
+              echo "plugin_dir=$(dirname ${changed_file})" >> "$GITHUB_OUTPUT"
+              echo "plugin_name=$(basename $(dirname ${changed_file}))" >> "$GITHUB_OUTPUT"
+            fi
+          done
+          if [[ -z "$GITHUB_OUTPUT" ]]
+          then
+            echo "::error::No pyproject.toml file found among changed files" && exit 1
+          fi
+      - name: Get Old Version
+        id: old_version
+        run: |
+          cd "${{ steps.plugin_filter.outputs.plugin_dir }}"
+          echo "version=$(cat VERSION)" >> "$GITHUB_OUTPUT"
+      # TODO: Add checks to make sure that the version is a dev version
       - name: Bump Version
         id: bump_version
         run: |
           cd "${{ steps.plugin_filter.outputs.plugin_dir }}"
-          bump2version release
-        # TODO: Figure out how to get the old and new version from bump2version and set as outputs for this step
+          bump2version release --no-commit
+          echo "new_version=$(cat VERSION)" >> "$GITHUB_OUTPUT"
       - name: Commit and Push all changed files
         env:
           CI_COMMIT_MESSAGE: Bumped version for "${{ steps.plugin_filter.outputs.plugin_name }}" from ${{ steps.bump_version.outputs.old_version }} to ${{ steps.bump_version.outputs.new_version }}
