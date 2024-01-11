@@ -31,7 +31,6 @@ jobs:
         id: package-filter
         run: |
           FOUND_PACKAGE=false
-
           for changed_file in ${{ steps.files-changed.outputs.added }} ${{ steps.files-changed.outputs.modified }} ${{ steps.files-changed.outputs.renamed }}
           do
             if [[ "$(basename ${changed_file})" == *"pyproject.toml"* ]]
@@ -42,7 +41,6 @@ jobs:
               break
             fi
           done
-
           if [[ "$FOUND_PACKAGE" = false ]]
           then
             echo "::error::No pyproject.toml file found among changed files" && exit 1
