@@ -38,7 +38,11 @@ jobs:
       - name: Run pre-commit hooks
         run: |
           poetry run pre-commit run --files ./**/**
-        # TODO: Check the git diff to see if any files were changed. If so, fail the job.
+
+          if [[ $(git status --porcelain) ]]
+          then
+            echo "::error::pre-commit hooks failed" && exit 1
+          fi
       - name: Run tests
         run: |
           poetry run pytest -v
