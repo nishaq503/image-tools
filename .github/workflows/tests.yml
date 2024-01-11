@@ -6,7 +6,6 @@ on:
       - main
       - master
       - dev
-      - ci/tests-workflow
   workflow_call:
     outputs:
       package_dir:
