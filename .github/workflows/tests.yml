@@ -1,6 +1,18 @@
 name: Package tests
 
 on:
+  push:
+    branches-ignore:
+      - main
+      - master
+      - dev
+      - ci/tests-workflow
+  pull_request:
+    branches:
+      - main
+      - master
+      - dev
+      - ci/tests-workflow
   workflow_call:
     outputs:
       package_dir:

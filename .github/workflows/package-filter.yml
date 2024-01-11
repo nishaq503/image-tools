@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   package-filter:
-    name: Package Filter
+    name: Filter for updated package
     runs-on: ubuntu-latest
     outputs:
       package_dir: ${{ steps.package-filter.outputs.package_dir }}
