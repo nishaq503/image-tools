@@ -13,4 +13,4 @@ bump2version --config-file bumpversion.cfg --new-version ${version} --allow-dirt
 docker push polusai/nyxus-plugin:${version}
 
 # Run unittests
-python -m unittest
+python -m pytest -s tests
