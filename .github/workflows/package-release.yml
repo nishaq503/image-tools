@@ -3,6 +3,11 @@ name: Package Release
 on:
   workflow_dispatch:
     inputs:
+      repo_name:
+        description: 'Name of the base repository'
+        required: true
+        type: string
+        default: 'image-tools'
       num-commits:
         description: "The of commits to check for updated packages. If 0, the action will check all commits on the branch. For any larger value, the action will check the last n commits for any updated packages."
         required: true
