@@ -48,6 +48,8 @@ COPY src ${EXEC_DIR}/src
 
 # Install the python package
 RUN pip3 install ${EXEC_DIR} --no-cache-dir
+RUN pip3 install "jax[cpu]==0.4.11" -f https://whls.blob.core.windows.net/unstable/index.html --use-deprecated legacy-resolver
+RUN pip3 install ml-dtypes==0.2.0
 
 ENTRYPOINT ["python3", "-m", "polus.images.regression.basic_flatfield_estimation"]
 CMD ["--help"]
