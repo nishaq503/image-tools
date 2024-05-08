@@ -68,7 +68,7 @@ def main(  # noqa: PLR0913
         ...,
         "--imageType",
         "-t",
-        help="type of image. Must be one of ['image','segmentation']",
+        help="type of image. Must be one of ['Intensity','Segmentation']",
         case_sensitive=False,
     ),
     preview: bool = typer.Option(

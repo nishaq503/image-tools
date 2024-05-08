@@ -57,10 +57,10 @@ ui:
   title: 'Pyramid Type: '
   type: select
 - condition: inputs.pyramidType==Neuroglancer
-  description: Image or Segmentation?
+  description: Intensity or Segmentation?
   fields:
-  - image
-  - segmentation
+  - Intensity
+  - Segmentation
   key: inputs.imageType
   title: 'Image Type: '
   type: select

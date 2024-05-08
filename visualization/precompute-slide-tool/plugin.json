@@ -36,12 +36,12 @@
     },
     {
       "name": "imageType",
-      "description": "Image is either Segmentation or Image",
+      "description": "Image is either Segmentation or Intensity",
       "type": "enum",
       "options": {
         "values": [
-          "image",
-          "segmentation"
+          "Intensity",
+          "Segmentation"
         ]
       },
       "required": false
