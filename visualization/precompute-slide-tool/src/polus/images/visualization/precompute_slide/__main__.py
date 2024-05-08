@@ -65,7 +65,7 @@ def main(  # noqa: PLR0913
         case_sensitive=False,
     ),
     image_type: ImageType = typer.Option(
-        ...,
+        ImageType.Intensity,
         "--imageType",
         "-t",
         help="type of image. Must be one of ['Intensity','Segmentation']",
