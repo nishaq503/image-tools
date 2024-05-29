@@ -209,11 +209,11 @@ def convert(
         [window_radius + 1, window_radius] for _ in range(1, vectors.ndim)
     ]
     vector_pad = numpy.pad(v_norm, pad)
-    mask_pad = numpy.pad(mask, pad)
+    mask_pad = numpy.pad(mask[None, ...], pad)
 
     # Get a local count of foreground pixels
     box_filt = common.BoxFilterND(mask_pad.ndim, 2 * window_radius + 1)
-    counts = box_filt(mask_pad.astype(numpy.int32))
+    counts = box_filt(mask_pad.astype(numpy.int32)).squeeze()
     counts[~mask] = 0
 
     # Get the local mean vector
