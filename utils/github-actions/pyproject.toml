@@ -1,0 +1,21 @@
+[tool.poetry]
+name = "polus-actions"
+version = "0.1.0"
+description = "Scripts to run in github acitons"
+authors = ["Najib Ishaq <najib_ishaq@nih.gov>"]
+readme = "README.md"
+packages = [{include = "polus", from = "src"}]
+
+[tool.poetry.dependencies]
+python = "^3.9"
+typer = { version = "^0.12.5", extras = ["all"] }
+toml = "^0.10.2"
+packaging = "^24.1"
+requests = "^2.32.3"
+
+[tool.poetry.group.dev.dependencies]
+pre-commit = "^3.8.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

@@ -18,11 +18,41 @@ permissions:
 
 jobs:
   package-filter:
-    name: Filter for updated package
-    uses: ./.github/workflows/package-filter.yml
-    with:
-      num-commits: 0
-      ignore-missing-dev: false
+    name: Filter for updated package(s)
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.filter.outputs.matrix }}
+      list: ${{ steps.filter.outputs.list }}
+      num_packages: ${{ steps.filter.outputs.num_packages }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          repository: "nishaq503/image-tools"
+          path: "util"
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+      - name: Install Poetry
+        uses: abatilo/actions-poetry@v2
+      - name: Install GH Util
+        run: |
+          pip install ./util/utils/github-actions
+      - name: Remove util repo
+        run: |
+          rm -rf ./util
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+      - name: Find Updated Packages
+        id: filter
+        run: |
+          python -m polus.actions -b -f all
 
   pre-commit:
     name: Pre-commit | ${{ matrix.package_name }}
