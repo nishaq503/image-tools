@@ -11,6 +11,7 @@ python = ">=3.9,<3.12"
 bfio = {version = ">=2.3.3,<3.0", extras = ["all"]}
 filepattern = ">=2.0.4,<3.0"
 typer = "^0.7.0"
+numpy = "^2.0"
 
 [tool.poetry.group.dev.dependencies]
 bump2version = "^1.0.1"

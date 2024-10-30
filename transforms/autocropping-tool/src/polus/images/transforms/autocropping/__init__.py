@@ -2,4 +2,10 @@
 
 __version__ = "2.0.0"
 
-from polus.images.transforms.autocropping.autocropping import autocropping
+from . import entropy
+from .autocropping import autocropping
+
+__all__ = [
+    "autocropping",
+    "entropy",
+]
