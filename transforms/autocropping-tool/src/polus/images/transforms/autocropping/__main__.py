@@ -19,7 +19,10 @@ def main(  # noqa: PLR0913
     crop_individually: bool = typer.Option(
         False,
         "--cropIndividually",
-        help="Whether to crop each image individually to its own bounding box, or to crop all images to the same bounding box.",  # noqa: E501
+        help=(
+            "Whether to crop each image individually to its own bounding box,"
+            " or to crop all images in a group to the same bounding box."
+        ),
     ),
     crop_x: bool = typer.Option(
         True,
