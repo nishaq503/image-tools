@@ -3,27 +3,52 @@
 import numpy
 
 
-def tile_entropy(tile: numpy.ndarray) -> tuple[numpy.ndarray, numpy.ndarray]:
-    """Calculate the entropy of the rows and columns in a tile.
+def row_wise_entropy(tile: numpy.ndarray) -> numpy.ndarray:
+    """Calculate the entropy of the rows in a tile.
 
     Args:
         tile: A numpy array (at least 2D) representing a tile.
 
     Returns:
-        A tuple of two numpy arrays, the first representing the entropy of the
-        rows and the second representing the entropy of the columns.
+        A 1D numpy array representing the entropy of the rows.
     """
     dtype = tile.dtype
 
     if numpy.issubdtype(dtype, numpy.floating):
-        return row_entropy_float(tile), row_entropy_float(tile.T)
+        return row_entropy_float(tile)
 
     if numpy.issubdtype(dtype, numpy.integer):
-        return row_entropy_int(tile), row_entropy_int(tile.T)
+        return row_entropy_int(tile)
 
     if numpy.issubdtype(dtype, numpy.bool_):
         tile = tile.astype(numpy.uint8)
-        return row_entropy_int(tile), row_entropy_int(tile.T)
+        return row_entropy_int(tile)
+
+    msg = f"Unsupported dtype: {dtype}"
+    raise ValueError(msg)
+
+
+def col_wise_entropy(tile: numpy.ndarray) -> numpy.ndarray:
+    """Calculate the entropy of the columns in a tile.
+
+    Args:
+        tile: A numpy array (at least 2D) representing a tile.
+
+    Returns:
+        A 1D numpy array representing the entropy of the columns.
+    """
+    dtype = tile.dtype
+    tile = tile.T
+
+    if numpy.issubdtype(dtype, numpy.floating):
+        return row_entropy_float(tile)
+
+    if numpy.issubdtype(dtype, numpy.integer):
+        return row_entropy_int(tile)
+
+    if numpy.issubdtype(dtype, numpy.bool_):
+        tile = tile.astype(numpy.uint8)
+        return row_entropy_int(tile)
 
     msg = f"Unsupported dtype: {dtype}"
     raise ValueError(msg)
@@ -65,3 +90,6 @@ def row_entropy_int(tile: numpy.ndarray) -> numpy.ndarray:
 
     # Calculate the entropy of the rows
     return -numpy.sum(probs * numpy.log2(probs), axis=1)
+
+
+__all__ = ["row_wise_entropy", "col_wise_entropy"]

@@ -35,3 +35,6 @@ def find_spike(data: numpy.ndarray, threshold: float) -> int:
 
     # Find the first spike
     return numpy.argmax(numpy.abs(numpy.gradient(data)) > threshold)
+
+
+__all__ = ["find_spike_indices"]
