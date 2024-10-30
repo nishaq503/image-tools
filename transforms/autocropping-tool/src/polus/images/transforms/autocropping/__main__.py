@@ -24,29 +24,32 @@ app = typer.Typer()
 def main(  # noqa: PLR0913
     crop_individually: bool = typer.Option(
         False,
+        "--cropIndividually",
         help="Whether to crop each image individually to its own bounding box, or to crop all images to the same bounding box.",  # noqa: E501
-        default=False,
     ),
     crop_x: bool = typer.Option(
-        False,
+        True,
+        "--cropX",
         help="Whether to crop the images in the X dimension.",
-        default=False,
     ),
     crop_y: bool = typer.Option(
-        False,
+        True,
+        "--cropY",
         help="Whether to crop the images in the Y dimension.",
-        default=False,
     ),
     file_pattern: str = typer.Option(
         ".*",
+        "--filePattern",
         help="The pattern for image names.",
     ),
     group_by: str = typer.Option(
         "",
+        "--groupBy",
         help="Each group can be cropped to the same bounding box.",
     ),
     inp_dir: pathlib.Path = typer.Option(
         ...,
+        "--inpDir",
         help="Path to the input directory containing the image collection.",
         exists=True,
         file_okay=False,
@@ -56,6 +59,7 @@ def main(  # noqa: PLR0913
     ),
     out_dir: pathlib.Path = typer.Option(
         ...,
+        "--outDir",
         help="Path to the output directory where the cropped images will be saved.",
         exists=True,
         file_okay=False,
