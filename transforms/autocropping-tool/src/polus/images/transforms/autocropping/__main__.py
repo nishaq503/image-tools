@@ -1,9 +1,12 @@
 """CLI for the Autocropping Tool tool."""
 
+import json
 import logging
 import pathlib
 
+import filepattern
 import typer
+from polus.images.transforms.autocropping import autocrop_group
 from polus.images.transforms.autocropping import utils
 
 logging.basicConfig(
@@ -69,6 +72,14 @@ def main(  # noqa: PLR0913
         resolve_path=True,
         readable=True,
     ),
+    preview: bool = typer.Option(
+        False,
+        "--preview",
+        help=(
+            "If True, return the paths to the images that would be saved "
+            "without actually performing any other computation."
+        ),
+    ),
 ) -> None:
     """CLI for the Autocropping Tool tool."""
     logger.info("Starting Autocropping Tool")
@@ -82,7 +93,39 @@ def main(  # noqa: PLR0913
     logger.info(f"inpDir: {inp_dir}")
     logger.info(f"outDir: {out_dir}")
 
-    pass
+    fp = filepattern.FilePattern(file_pattern)
+
+    groups: list[list[pathlib.Path]] = []
+
+    for group, files in fp(group_by=list(group_by)):
+        logger.info(f"Group: {group}")
+        logger.info(f"Files: {files}")
+        inp_files: list[pathlib.Path] = [p for _, [p] in files]
+        logger.info(f"inp_files: {inp_files}")
+
+        groups.append(inp_files)
+
+    if preview:
+        preview_json: dict[str, list[str]] = {"files": []}
+        for inp_files in groups:
+            for inp_file in inp_files:
+                preview_json["files"].append(str(inp_file))
+
+        with (out_dir / "preview.json").open("w") as f:
+            json.dump(preview_json, f, indent=2)
+
+    else:
+        for inp_files in groups:
+            autocrop_group(
+                inp_files=inp_files,
+                crop_x=crop_x,
+                crop_y=crop_y,
+                crop_individually=crop_individually,
+                threshold=gradient_threshold,
+                out_dir=out_dir,
+            )
+
+    logger.info("Autocropping Tool completed successfully.")
 
 
 if __name__ == "__main__":
