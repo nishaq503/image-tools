@@ -1,0 +1,67 @@
+{
+  "name": "Autocropping Tool",
+  "version": "2.0.0",
+  "title": "Autocropping Tool",
+  "description": "Crop out the outer low-entropy rows and/or columns of images.",
+  "author": "Najib Ishaq (najib.ishaq@nih.gov)",
+  "institution": "National Center for Advancing Translational Sciences, National Institutes of Health",
+  "repository": "https://github.com/polusAI/tabular-tools",
+  "website": "https://ncats.nih.gov/preclinical/core/informatics",
+  "citation": "",
+  "containerId": "polusai/autocropping-tool:2.0.0",
+  "baseCommand": [
+    "python3",
+    "-m",
+    "polus.images.transforms.autocropping"
+  ],
+  "inputs": {
+    "inpDir": {
+      "type": "collection",
+      "title": "Input collection",
+      "description": "Input image collection to be processed by this tool.",
+      "required": "True"
+    },
+    "filePattern": {
+      "type": "string",
+      "title": "Filename pattern",
+      "description": "Filename pattern used to separate data.",
+      "required": "False",
+      "default": ".*"
+    },
+    "preview": {
+      "type": "boolean",
+      "title": "Preview",
+      "description": "Generate an output preview.",
+      "required": "False",
+      "default": "False"
+    }
+  },
+  "outputs": {
+    "outDir": {
+      "type": "collection",
+      "description": "Output collection."
+    }
+  },
+  "ui": {
+    "inpDir": {
+      "type": "collection",
+      "title": "Input collection",
+      "description": "Input image collection to be processed by this tool.",
+      "required": "True"
+    },
+    "filePattern": {
+      "type": "string",
+      "title": "Filename pattern",
+      "description": "Filename pattern used to separate data.",
+      "required": "False",
+      "default": "False"
+    },
+    "preview": {
+      "type": "boolean",
+      "title": "Filename pattern",
+      "description": "Generate an output preview.",
+      "required": "False",
+      "default": "False"
+    }
+  }
+}
