@@ -13,14 +13,18 @@ inputs:
     inputBinding:
       prefix: --cropIndividually
     type: boolean?
+  gradientThresold:
+    inputBinding:
+      prefix: --gradientThresold
+    type: float?
   filePattern:
     inputBinding:
       prefix: --filePattern
-    type: string
+    type: string?
   groupBy:
     inputBinding:
       prefix: --groupBy
-    type: string
+    type: string?
   inpDir:
     inputBinding:
       prefix: --inpDir

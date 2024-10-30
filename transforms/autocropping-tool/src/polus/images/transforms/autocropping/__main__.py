@@ -1,22 +1,16 @@
 """CLI for the Autocropping Tool tool."""
 
 import logging
-import os
 import pathlib
 
 import typer
-from polus.images.transforms.autocropping.autocropping import autocropping
+from polus.images.transforms.autocropping import utils
 
 logging.basicConfig(
     format="%(asctime)s - %(name)-8s - %(levelname)-8s - %(message)s",
     datefmt="%d-%b-%y %H:%M:%S",
 )
-POLUS_LOG = getattr(logging, os.environ.get("POLUS_LOG", "INFO"))
-logger = logging.getLogger("polus.images.transforms.autocropping")
-logger.setLevel(POLUS_LOG)
-
-POLUS_IMG_EXT = os.environ.get("POLUS_IMG_EXT", ".ome.tif")
-POLUS_TAB_EXT = os.environ.get("POLUS_TAB_EXT", ".csv")
+logger = utils.make_logger("polus.images.transforms.autocropping")
 app = typer.Typer()
 
 
@@ -36,6 +30,11 @@ def main(  # noqa: PLR0913
         True,
         "--cropY",
         help="Whether to crop the images in the Y dimension.",
+    ),
+    gradient_threshold: float = typer.Option(
+        0.1,
+        "--gradientThreshold",
+        help="The threshold to use when finding spikes in the entropy gradients.",
     ),
     file_pattern: str = typer.Option(
         ".*",
@@ -74,12 +73,11 @@ def main(  # noqa: PLR0913
     logger.info(f"cropIndividually: {crop_individually}")
     logger.info(f"cropX: {crop_x}")
     logger.info(f"cropY: {crop_y}")
+    logger.info(f"gradientThreshold: {gradient_threshold}")
     logger.info(f"filePattern: {file_pattern}")
     logger.info(f"groupBy: {group_by}")
     logger.info(f"inpDir: {inp_dir}")
     logger.info(f"outDir: {out_dir}")
-
-    autocropping()
 
     pass
 

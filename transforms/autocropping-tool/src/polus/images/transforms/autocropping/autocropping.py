@@ -1,6 +1,70 @@
 """Autocropping Tool."""
 
 
-def autocropping() -> None:
+import pathlib
+
+import bfio
+
+from . import bounding_box
+from . import utils
+
+logger = utils.make_logger(__name__)
+
+
+def autocrop_group(  # noqa: PLR0913
+    inp_files: list[pathlib.Path],
+    crop_x: bool,
+    crop_y: bool,
+    crop_individually: bool,
+    threshold: float,
+    out_dir: pathlib.Path,
+) -> None:
     """Autocropping Tool."""
-    pass
+    readers = [(inp_path, bfio.BioReader(inp_path)) for inp_path in inp_files]
+    box: bounding_box.BoundingBox
+
+    if crop_individually:
+        logger.info("Cropping images individually...")
+
+        for inp_path, reader in readers:
+            logger.info(f"Individually processing {inp_path.name}...")
+
+            box = bounding_box.BoundingBox.from_image(
+                reader=reader,
+                rows=crop_y,
+                cols=crop_x,
+                threshold=threshold,
+            )
+            logger.info(f"Bounding box for {inp_path.name}: {box}")
+            box.crop_image(
+                reader=reader,
+                out_path=out_dir / inp_path.name,
+            )
+    else:
+        logger.info("Cropping images collectively...")
+        boxes: list[bounding_box.BoundingBox] = []
+        for inp_path, reader in readers:
+            logger.info(f"Finding bounding box for {inp_path.name}...")
+            box = bounding_box.BoundingBox.from_image(
+                reader=reader,
+                rows=crop_y,
+                cols=crop_x,
+                threshold=threshold,
+            )
+            logger.info(f"Bounding box for {inp_path.name}: {box}")
+            boxes.append(box)
+
+        box = sum(boxes[1:], boxes[0])
+        logger.info(f"Bounding box for all images: {box}")
+
+        for inp_path, reader in readers:
+            logger.info(f"Collectively cropping {inp_path.name}...")
+            box.crop_image(
+                reader=reader,
+                out_path=out_dir / inp_path.name,
+            )
+
+    for _, reader in readers:
+        reader.close()
+
+    logger.info("Autocropping complete.")

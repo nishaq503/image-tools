@@ -2,7 +2,7 @@
 
 import pytest
 
-from polus.images.transforms.autocropping.autocropping import autocropping
+from polus.images.transforms.autocropping.autocropping import autocrop_group
 
 
 def test_autocropping():

@@ -5,11 +5,13 @@ __version__ = "2.0.0"
 from . import bounding_box
 from . import entropy
 from . import gradients
-from .autocropping import autocropping
+from . import utils
+from .autocropping import autocrop_group
 
 __all__ = [
     "bounding_box",
-    "autocropping",
+    "autocrop_group",
     "entropy",
     "gradients",
+    "utils",
 ]
