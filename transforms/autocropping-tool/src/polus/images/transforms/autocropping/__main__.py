@@ -19,6 +19,26 @@ app = typer.Typer()
 
 @app.command()
 def main(  # noqa: PLR0913
+    inp_dir: pathlib.Path = typer.Option(
+        ...,
+        "--inpDir",
+        help="Path to the input directory containing the image collection.",
+        exists=True,
+        file_okay=False,
+        dir_okay=True,
+        resolve_path=True,
+        readable=True,
+    ),
+    file_pattern: str = typer.Option(
+        ".*",
+        "--filePattern",
+        help="The pattern for image names.",
+    ),
+    group_by: str = typer.Option(
+        "",
+        "--groupBy",
+        help="Each group can be cropped to the same bounding box.",
+    ),
     crop_individually: bool = typer.Option(
         False,
         "--cropIndividually",
@@ -42,26 +62,6 @@ def main(  # noqa: PLR0913
         "--gradientThreshold",
         help="The threshold to use when finding spikes in the entropy gradients.",
     ),
-    file_pattern: str = typer.Option(
-        ".*",
-        "--filePattern",
-        help="The pattern for image names.",
-    ),
-    group_by: str = typer.Option(
-        "",
-        "--groupBy",
-        help="Each group can be cropped to the same bounding box.",
-    ),
-    inp_dir: pathlib.Path = typer.Option(
-        ...,
-        "--inpDir",
-        help="Path to the input directory containing the image collection.",
-        exists=True,
-        file_okay=False,
-        dir_okay=True,
-        resolve_path=True,
-        readable=True,
-    ),
     out_dir: pathlib.Path = typer.Option(
         ...,
         "--outDir",
@@ -70,7 +70,7 @@ def main(  # noqa: PLR0913
         file_okay=False,
         dir_okay=True,
         resolve_path=True,
-        readable=True,
+        writable=True,
     ),
     preview: bool = typer.Option(
         False,
@@ -84,13 +84,13 @@ def main(  # noqa: PLR0913
     """CLI for the Autocropping Tool tool."""
     logger.info("Starting Autocropping Tool")
 
+    logger.info(f"inpDir: {inp_dir}")
+    logger.info(f"filePattern: {file_pattern}")
+    logger.info(f"groupBy: {group_by}")
     logger.info(f"cropIndividually: {crop_individually}")
     logger.info(f"cropX: {crop_x}")
     logger.info(f"cropY: {crop_y}")
     logger.info(f"gradientThreshold: {gradient_threshold}")
-    logger.info(f"filePattern: {file_pattern}")
-    logger.info(f"groupBy: {group_by}")
-    logger.info(f"inpDir: {inp_dir}")
     logger.info(f"outDir: {out_dir}")
 
     fp = filepattern.FilePattern(file_pattern)
